@@ -1,0 +1,26 @@
+# derived_attributes.yaml
+# Project-specific derived variables for the current Sensanalyser dataset.
+#
+# The raw aroma and flavour attributes remain untouched. These definitions add
+# derived columns to the working dataset before modelling.
+#
+# Method:
+#   mean = row-wise mean across source_variables, ignoring missing values.
+#
+# For this first project-specific rerun, only one conceptual category is used:
+# Overall Fruity. It combines fruit-related aroma/flavour attributes.
+
+derived_attributes:
+  overall_fruity:
+    label: "Overall Fruity"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - stone_fruits_a
+      - stone_fruits_f
+      - tropical_a
+      - tropical_f
+      - banana_a
+      - banana_f
+      - orchard_a
+      - orchard_f

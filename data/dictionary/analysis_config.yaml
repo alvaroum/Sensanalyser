@@ -1,0 +1,89 @@
+meta:
+  created_at: 2026-06-09 00:09:48
+  r_version: 4.6.0
+  data_file: /Users/alvaro/Development/R projects/Sensanalyser/data/raw/Raw.data.sting.csv
+analysis:
+  dependent_variables:
+  - transparancy_ap
+  - viscosity_ap
+  - stone_fruits_a
+  - dried_fruits_a
+  - woody_a
+  - tropical_a
+  - animalic_a
+  - medicinal_a
+  - solvent_a
+  - molasses_a
+  - honey_a
+  - leathery_a
+  - musty_a
+  - confectionary_a
+  - floral_a
+  - orchard_a
+  - caramalized_sugar_a
+  - green_a
+  - banana_a
+  - cooked_vegetal_a
+  - vanilla_a
+  - baking_spices_a
+  - ethanol_a
+  - sweetness_m
+  - sourness_m
+  - bitterness_m
+  - saltiness_m
+  - stone_fruits_f
+  - dried_fruits_f
+  - woody_f
+  - tropical_f
+  - animalic_f
+  - medicinal_f
+  - solvent_f
+  - molasses_f
+  - honey_f
+  - leathery_f
+  - musty_f
+  - confectionary_f
+  - floral_f
+  - orchard_f
+  - caramalized_sugar_f
+  - green_f
+  - banana_f
+  - cooked_vegetal_f
+  - vanilla_f
+  - baking_spices_f
+  - ethanol_f
+  - tingeling_m
+  - silkiness_m
+  - body_m
+  - burn_m
+  - coating_m
+  factors:
+  - product
+  subject_id: user
+  repeated_measures_factors: []
+  random_effects:
+  - user
+  blocking_factors: []
+  model_type: linear_mixed_model
+  model_fixed_effects: ~
+  posthoc_method: lsd
+  posthoc_focal_terms: ~
+  outlier_policy: remove_extreme
+  outlier_removal_action: set_na
+  outlier_grouping_factors: ~
+  descriptive_grouping_factors: ~
+  alpha: 0.05
+toggles:
+  interactive_setup: yes
+  discover_variables: no
+  run_outlier_detection: yes
+  apply_outlier_policy: yes
+  run_descriptives: yes
+  run_anova_models: no
+  run_mixed_models: yes
+  run_posthoc: yes
+  run_pca: yes
+  run_mfa: no
+  create_tables: yes
+  create_figures: yes
+  render_quarto_report: yes

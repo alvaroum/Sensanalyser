@@ -1,0 +1,105 @@
+# renaming_dictionary.yaml
+# Sensanalyser Display Name Mapping
+#
+# Edit this file to map internal column names and factor levels to the
+# display labels you want in tables and figures.
+#
+# Structure:
+#   variables:   column_name -> "Display Label"
+#   levels:      factor_name -> level_value -> "Display Label"
+#   outcomes:    dv_column_name -> "Display Label"
+#
+# All mappings are optional. If a name is not listed here, the raw column
+# name is used as-is (with underscores replaced by spaces in outputs).
+# -----------------------------------------------------------------------
+
+# 1. FACTOR COLUMN NAMES
+# Map internal column names to readable headings in tables and figure axes.
+variables:
+  product:     "Product"
+  assessor:    "Assessor"
+  user:        "Panelist"
+  age:         "Age Group"
+  session:     "Session"
+  replica:     "Replicate"
+  treatment:   "Treatment"
+  formulation: "Formulation"
+
+# 2. FACTOR LEVELS
+# Map coded values (numbers or abbreviations) to descriptive labels.
+levels:
+  product:
+    "1": "Trial 1"
+    "2": "Trial 2"
+    "3": "Trial 3"
+    "4": "Trial 4"
+    "5": "Trial 5"
+    "6": "Trial 6"
+    "7": "Control"
+
+# 3. DEPENDENT VARIABLE (ATTRIBUTE) NAMES
+# Map internal attribute column names to clean display names for tables.
+# Add your study-specific attributes here.
+outcomes:
+  # Appearance / Aroma attributes (_a suffix)
+  viscosity_ap:         "Viscosity (Appearance)"
+  transparency_ap:      "Transparency (Appearance)"
+  transparancy_ap:      "Transparency (Appearance)"
+  stone_fruits_a:       "Stone Fruits (Aroma)"
+  dried_fruits_a:       "Dried Fruits (Aroma)"
+  woody_a:              "Woody (Aroma)"
+  tropical_a:           "Tropical (Aroma)"
+  animalic_a:           "Animalic (Aroma)"
+  medicinal_a:          "Medicinal (Aroma)"
+  solvent_a:            "Solvent (Aroma)"
+  molasses_a:           "Molasses (Aroma)"
+  honey_a:              "Honey (Aroma)"
+  leathery_a:           "Leathery (Aroma)"
+  musty_a:              "Musty (Aroma)"
+  confectionary_a:      "Confectionary (Aroma)"
+  floral_a:             "Floral (Aroma)"
+  orchard_a:            "Orchard (Aroma)"
+  caramalized_sugar_a:  "Caramelised Sugar (Aroma)"
+  green_a:              "Green (Aroma)"
+  banana_a:             "Banana (Aroma)"
+  cooked_vegetal_a:     "Cooked Vegetal (Aroma)"
+  vanilla_a:            "Vanilla (Aroma)"
+  baking_spices_a:      "Baking Spices (Aroma)"
+  ethanol_a:            "Ethanol (Aroma)"
+
+  # Mouthfeel attributes (_m suffix)
+  sweetness_m:          "Sweetness (Mouthfeel)"
+  sourness_m:           "Sourness (Mouthfeel)"
+  bitterness_m:         "Bitterness (Mouthfeel)"
+  saltiness_m:          "Saltiness (Mouthfeel)"
+  tingeling_m:          "Tingling (Mouthfeel)"
+  silkiness_m:          "Silkiness (Mouthfeel)"
+  body_m:               "Body (Mouthfeel)"
+  burn_m:               "Burn (Mouthfeel)"
+  coating_m:            "Coating (Mouthfeel)"
+
+  # Flavour attributes (_f suffix)
+  stone_fruits_f:       "Stone Fruits (Flavour)"
+  dried_fruits_f:       "Dried Fruits (Flavour)"
+  woody_f:              "Woody (Flavour)"
+  tropical_f:           "Tropical (Flavour)"
+  animalic_f:           "Animalic (Flavour)"
+  medicinal_f:          "Medicinal (Flavour)"
+  solvent_f:            "Solvent (Flavour)"
+  molasses_f:           "Molasses (Flavour)"
+  honey_f:              "Honey (Flavour)"
+  leathery_f:           "Leathery (Flavour)"
+  musty_f:              "Musty (Flavour)"
+  confectionary_f:      "Confectionary (Flavour)"
+  floral_f:             "Floral (Flavour)"
+  orchard_f:            "Orchard (Flavour)"
+  caramalized_sugar_f:  "Caramelised Sugar (Flavour)"
+  green_f:              "Green (Flavour)"
+  banana_f:             "Banana (Flavour)"
+  cooked_vegetal_f:     "Cooked Vegetal (Flavour)"
+  vanilla_f:            "Vanilla (Flavour)"
+  baking_spices_f:      "Baking Spices (Flavour)"
+  ethanol_f:            "Ethanol (Flavour)"
+
+  # Project-specific derived conceptual attributes
+  overall_fruity:       "Overall Fruity"

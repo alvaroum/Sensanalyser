@@ -1,0 +1,543 @@
+---
+title: "Sensanalyser Results Report"
+subtitle: "Executive interpretation of the current product-trial analysis"
+author: "Sensanalyser"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: false
+    df-print: paged
+    embed-resources: true
+  docx:
+    toc: true
+    number-sections: true
+  pdf:
+    toc: true
+    number-sections: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## Purpose of this document
+
+This report consolidates the current Sensanalyser workflow into one executive review document for an **internal R&D client**. It brings together means-only product tables, sensory profile plots, and the PCA product map. The emphasis is on interpretation: which trials are sensorially different from the control, what those differences mean, and where product-context information is still unknown.
+
+## Study objective
+
+The practical objective of this analysis is to compare six product trials against the control and identify the product spaces they occupy. In concrete terms, the analysis asks whether the trials differ in appearance, aroma, flavour, and mouthfeel attributes; which trials are most differentiated from the control; and which differences are large enough to matter for product positioning or further development.
+
+At this stage the products are anonymised as **Trial 1** to **Trial 6** plus **Control**. The formulation or process identity of each trial is unknown, and the intended target profile is also unknown. The report therefore interprets sensory profiles but does not link them to formulation, process, cost, consumer target, or brand strategy.
+
+## Reading guide and product context
+
+A few terms matter for interpretation.
+
+- **Trial 1–Trial 6** are anonymised product variants. **Control** is the reference product.
+- The current dataset contains **133 observations**, with **19 observations per product**.
+- The model used for the current run is a **linear mixed model** with product as the fixed factor and assessor/user as a random effect.
+- Outliers were screened and the configured policy removed extreme values by setting them to missing before modelling.
+- Post-hoc compact-letter groupings use the current configured method, **LSD**, at $\alpha = 0.05$.
+- Attribute suffixes indicate the sensory modality:
+  - **Aroma** = attributes perceived by smell
+  - **Flavour** = attributes perceived during tasting
+  - **Mouthfeel** = in-mouth texture, taste, or trigeminal sensations
+  - **Appearance** = visual attributes
+
+The executive tables report **means only**, without standard errors, to keep the presentation readable for an internal R&D client.
+
+```{r}
+library(tidyverse)
+library(here)
+library(knitr)
+
+source(here::here("R", "functions", "table_helpers.R"))
+
+safe_read_csv <- function(path) {
+  if (!file.exists(path)) {
+    return(tibble::tibble())
+  }
+  readr::read_csv(path, show_col_types = FALSE)
+}
+
+input_path <- normalizePath(knitr::current_input(), mustWork = FALSE)
+input_dir <- dirname(input_path)
+project_root_candidates <- unique(normalizePath(
+  c(getwd(), file.path(input_dir, ".."), input_dir),
+  mustWork = FALSE
+))
+project_root <- project_root_candidates[
+  file.exists(file.path(project_root_candidates, "outputs", "tables", "results_model.csv"))
+][1]
+if (is.na(project_root)) {
+  stop("Could not locate project root containing outputs/tables/results_model.csv")
+}
+
+show_image_if_exists <- function(path, width = "100%") {
+  if (file.exists(path)) {
+    rel_path <- gsub(file.path(project_root, "reports"), ".", normalizePath(path), fixed = TRUE)
+    rel_path <- gsub(project_root, "..", rel_path, fixed = TRUE)
+    rel_path <- gsub("\\\\", "/", rel_path)
+    parts <- strsplit(rel_path, "/")[[1]]
+    encoded_path <- paste(sapply(parts, utils::URLencode), collapse = "/")
+    cat(paste0("\n![](", encoded_path, "){width=", width, "}\n\n"))
+  } else {
+    cat("\nFigure not available yet.\n\n")
+  }
+}
+
+get_spider_title <- function(filename) {
+  name <- tools::file_path_sans_ext(basename(filename))
+  name <- gsub("^spider_", "", name)
+  name <- gsub("_", " ", name)
+  stringr::str_to_title(name)
+}
+
+label_modality <- function(attribute) {
+  dplyr::case_when(
+    stringr::str_detect(attribute, "\\(Aroma\\)") ~ "Aroma",
+    stringr::str_detect(attribute, "\\(Flavour\\)") ~ "Flavour",
+    stringr::str_detect(attribute, "\\(Mouthfeel\\)") ~ "Mouthfeel",
+    stringr::str_detect(attribute, "\\(Appearance\\)") ~ "Appearance",
+    TRUE ~ "Other"
+  )
+}
+
+extract_first_mean <- function(x) {
+  as.numeric(stringr::str_extract(as.character(x), "^[0-9.]+"))
+}
+
+raw_to_label <- function(x) {
+  modality <- dplyr::case_when(
+    stringr::str_ends(x, "_a") ~ "Aroma",
+    stringr::str_ends(x, "_f") ~ "Flavour",
+    stringr::str_ends(x, "_m") ~ "Mouthfeel",
+    stringr::str_ends(x, "_ap") ~ "Appearance",
+    TRUE ~ ""
+  )
+  base <- x |>
+    stringr::str_remove("_(a|f|m|ap)$") |>
+    stringr::str_replace_all("_", " ") |>
+    stringr::str_replace("caramalized", "caramelised") |>
+    stringr::str_replace("transparancy", "transparency") |>
+    stringr::str_replace("tingeling", "tingling") |>
+    stringr::str_to_title()
+  ifelse(modality == "", base, paste0(base, " (", modality, ")"))
+}
+
+report_dir <- file.path(project_root, "reports")
+tables_dir <- file.path(project_root, "outputs", "tables")
+figures_dir <- file.path(project_root, "outputs", "figures")
+diagnostics_dir <- file.path(project_root, "outputs", "diagnostics")
+
+results_model <- safe_read_csv(file.path(tables_dir, "results_model.csv"))
+report_wide <- safe_read_csv(file.path(tables_dir, "report_format_wide.csv"))
+report_means <- safe_read_csv(file.path(tables_dir, "report_format_wide_means.csv"))
+run_summary <- safe_read_csv(file.path(tables_dir, "run_configuration_summary.csv"))
+pca_eigen <- safe_read_csv(file.path(tables_dir, "pca", "pca_eigenvalues.csv"))
+pca_scores <- safe_read_csv(file.path(tables_dir, "pca", "pca_group_scores.csv"))
+pca_vars <- safe_read_csv(file.path(tables_dir, "pca", "pca_variable_coordinates.csv"))
+outlier_summary <- safe_read_csv(file.path(diagnostics_dir, "outlier_decision_summary.csv"))
+
+product_cols <- setdiff(names(report_wide), "outcome")
+
+if (nrow(results_model) > 0 && !"statistic" %in% names(results_model) && "F" %in% names(results_model)) {
+  results_model <- results_model |> dplyr::rename(statistic = F)
+}
+if (nrow(results_model) > 0 && !"term" %in% names(results_model)) {
+  results_model <- results_model |> dplyr::mutate(term = "product")
+}
+
+significant_results <- if (nrow(results_model) > 0 && all(c("outcome", "statistic", "p", "term") %in% names(results_model))) {
+  results_model |>
+    dplyr::filter(p < 0.05) |>
+    dplyr::mutate(
+      `Sensory attribute` = raw_to_label(outcome),
+      `F-value` = statistic,
+      `p-value` = p,
+      Significance = dplyr::case_when(
+        p < 0.001 ~ "***",
+        p < 0.01 ~ "**",
+        p < 0.05 ~ "*",
+        TRUE ~ ""
+      )
+    ) |>
+    dplyr::select(`Sensory attribute`, term, `F-value`, `p-value`, Significance)
+} else {
+  tibble::tibble()
+}
+
+letter_summary <- if (nrow(report_wide) > 0) {
+  report_wide |>
+    tidyr::pivot_longer(-outcome, names_to = "product", values_to = "mean_se_letters") |>
+    dplyr::mutate(
+      mean = extract_first_mean(mean_se_letters),
+      has_letter = stringr::str_detect(mean_se_letters, "[a-z]$")
+    ) |>
+    dplyr::group_by(outcome) |>
+    dplyr::filter(any(has_letter)) |>
+    dplyr::summarise(
+      `Highest product` = product[which.max(mean)],
+      `Highest mean` = max(mean, na.rm = TRUE),
+      `Lowest product` = product[which.min(mean)],
+      `Lowest mean` = min(mean, na.rm = TRUE),
+      Modality = label_modality(dplyr::first(outcome)),
+      .groups = "drop"
+    ) |>
+    dplyr::rename(`Sensory attribute` = outcome) |>
+    dplyr::select(Modality, `Sensory attribute`, `Highest product`, `Highest mean`, `Lowest product`, `Lowest mean`)
+} else {
+  tibble::tibble()
+}
+
+# Derived Overall Fruity rerun outputs --------------------------------------
+derived_root <- file.path(project_root, "outputs", "derived_overall_fruity")
+derived_tables_dir <- file.path(derived_root, "tables")
+derived_figures_dir <- file.path(derived_root, "figures")
+
+derived_results_model <- safe_read_csv(file.path(derived_tables_dir, "results_model.csv"))
+derived_report_wide <- safe_read_csv(file.path(derived_tables_dir, "report_format_wide.csv"))
+derived_report_means <- safe_read_csv(file.path(derived_tables_dir, "report_format_wide_means.csv"))
+derived_pca_eigen <- safe_read_csv(file.path(derived_tables_dir, "pca", "pca_eigenvalues.csv"))
+
+derived_product_cols <- setdiff(names(derived_report_means), "outcome")
+
+if (nrow(derived_results_model) > 0 && !"statistic" %in% names(derived_results_model) && "F" %in% names(derived_results_model)) {
+  derived_results_model <- derived_results_model |> dplyr::rename(statistic = F)
+}
+
+make_direction_summary <- function(wide_tbl) {
+  if (is.null(wide_tbl) || nrow(wide_tbl) == 0) return(tibble::tibble())
+  wide_tbl |>
+    tidyr::pivot_longer(-outcome, names_to = "product", values_to = "mean_letters") |>
+    dplyr::mutate(
+      mean = extract_first_mean(mean_letters),
+      has_letter = stringr::str_detect(mean_letters, "\\^[A-Za-z]+\\^$|[A-Za-z]+$")
+    ) |>
+    dplyr::group_by(outcome) |>
+    dplyr::filter(any(has_letter)) |>
+    dplyr::summarise(
+      `Highest product` = product[which.max(mean)],
+      `Highest mean` = max(mean, na.rm = TRUE),
+      `Lowest product` = product[which.min(mean)],
+      `Lowest mean` = min(mean, na.rm = TRUE),
+      Modality = label_modality(dplyr::first(outcome)),
+      .groups = "drop"
+    ) |>
+    dplyr::rename(`Sensory attribute` = outcome) |>
+    dplyr::select(Modality, `Sensory attribute`, `Highest product`, `Highest mean`, `Lowest product`, `Lowest mean`)
+}
+
+derived_letter_summary <- make_direction_summary(derived_report_wide)
+
+derived_overall_row <- if (nrow(derived_results_model) > 0) {
+  derived_results_model |> dplyr::filter(outcome == "overall_fruity")
+} else {
+  tibble::tibble()
+}
+
+derived_pc1 <- if (nrow(derived_pca_eigen) >= 1) round(derived_pca_eigen$variance_percent[1], 1) else NA_real_
+derived_pc2 <- if (nrow(derived_pca_eigen) >= 2) round(derived_pca_eigen$variance_percent[2], 1) else NA_real_
+derived_pc12 <- if (nrow(derived_pca_eigen) >= 2) round(derived_pca_eigen$cumulative_percent[2], 1) else NA_real_
+```
+
+## General pattern across the dataset
+
+The current results show a clear product effect, but it is not uniform across the full sensory vocabulary. Out of 53 evaluated attributes, 15 showed a statistically significant product effect at $\alpha = 0.05$. The strongest signal is in **aroma** and **flavour**, especially fruit-related, confectionary, floral, and musty/leathery dimensions. Appearance and most mouthfeel dimensions are comparatively less differentiated in the current run.
+
+The broad product pattern is straightforward. **Trial 5** is the most distinctive product in the set. It is consistently higher on tropical, banana, confectionary, floral, orchard, and sweet/caramel-like notes, and lower on several darker or less fresh aroma notes such as leathery, musty, cooked vegetal, and green. In other words, Trial 5 separates from the rest of the products as a more fruity and confectionary sensory profile.
+
+The **Control** tends to sit at the opposite side of several aroma contrasts. It is among the highest products for musty, leathery, cooked vegetal, and green aroma, while staying low on tropical and banana notes. This does not automatically mean the control is inferior, but it does mean that its current profile is less fruit-forward and more dominated by heavier or green/vegetal attributes.
+
+**Trials 2, 3, and 4** show more selective differentiation. Trial 3 stands out most clearly for floral flavour. Trial 4, together with Trial 5, is higher on caramelised sugar flavour and also shows a high tingling score descriptively. Trial 2 sits closer to the middle but is relatively high in saltiness and several aroma/flavour notes. **Trial 1** and **Trial 6** are generally less differentiated from the control, although Trial 6 is among the higher products for saltiness and ethanol-related descriptive means.
+
+The multivariate map supports the same interpretation. PC1 alone explains 38.7% of product-profile variance and separates Trial 5 strongly from the control and most other trials. PC2 explains a further 18.6%, giving the first two dimensions a combined 57.4% of explained variance. Trial 5 is therefore not only significant on individual attributes; it occupies a separate sensory region in the product map.
+
+## Executive takeaways
+
+1. **Trial 5 is the clear sensory outlier.** It is associated with tropical, banana, confectionary, floral, orchard, and sweet/caramel-like notes, both in the mean tables and the PCA space.
+2. **The control profile is more savoury/green/heavy than fruit-forward.** It scores high descriptively on musty, leathery, cooked vegetal, and green aroma dimensions and low on tropical and banana notes.
+3. **The target profile is currently unknown.** Trial 5 is the strongest option if the desired direction is sweeter, fruitier, and more confectionary, but that cannot be treated as a recommendation until the R&D target is defined.
+4. **Most appearance and mouthfeel dimensions are not strongly separated by product.** Saltiness is the only mouthfeel attribute with a significant product effect in the current model. This suggests that the major differentiation is sensory character rather than physical appearance or broad mouthfeel structure.
+5. **The current interpretation should be linked to formulation identities before product decisions are finalised.** The trial codes need to be mapped to ingredients, processing conditions, and development intent.
+
+## Direction of the main product differences
+
+The current model indicates a product effect for 15 of the 53 evaluated attributes. To keep the report focused on product interpretation rather than statistical detail, the table below reports only the mean-based direction of the differentiated attributes: which product was highest and which product was lowest on the observed scale.
+
+```{r}
+if (nrow(letter_summary) > 0) {
+  render_executive_table(letter_summary, "Table 1: Highest and lowest product means for differentiated attributes", digits = 1)
+} else {
+  cat("\nNo mean summary is available.\n")
+}
+```
+
+## Product-by-product interpretation
+
+### Trial 5
+
+Trial 5 is the most clearly differentiated trial. It is significantly higher than most or all other products for **Tropical (Aroma)**, **Tropical (Flavour)**, **Banana (Aroma)**, **Banana (Flavour)**, **Confectionary (Aroma)**, and **Confectionary (Flavour)**. It also sits high for **Floral (Aroma)** and **Orchard (Aroma)** and shares the highest descriptive level for **Caramelised Sugar (Flavour)**.
+
+The practical interpretation is that Trial 5 carries a sweeter, fruitier, more confectionary profile. It is also lower than the control for musty, leathery, cooked vegetal, and green aroma. Because the target profile is unknown, this should be read as a clear sensory direction rather than a final recommendation.
+
+### Control
+
+The control is not the most fruit-forward product. It is highest or near-highest on **Musty (Aroma)**, **Leathery (Aroma)**, **Cooked Vegetal (Aroma)**, and **Green (Aroma)**, and low on tropical and banana notes. That profile may represent the existing reference identity, but it also explains why Trial 5 separates so strongly in the multivariate analysis.
+
+The business interpretation depends on the intended direction. If the control reflects the desired benchmark, Trial 5 represents a large sensory departure. If the current control has known aroma limitations, the data suggest that Trial 5 moves away from several of those heavier notes. No additional strategically desirable or undesirable attributes were specified for this internal R&D review.
+
+### Trials 1, 2, 3, 4, and 6
+
+The remaining trials are more selective in their differentiation.
+
+- **Trial 3** is most notable for **Floral (Flavour)** and has comparatively high silkiness and viscosity descriptively.
+- **Trial 4** is high on **Caramelised Sugar (Flavour)** and has high descriptive tingling and burn values, although those mouthfeel differences are not the main statistical signal.
+- **Trial 2** is relatively high on saltiness and several aroma/flavour dimensions but is less clearly separated than Trial 5.
+- **Trial 1** is generally closer to the control/product centre and is not a primary differentiator in the current output.
+- **Trial 6** is also less differentiated overall, though it is among the higher products for saltiness and some ethanol-related descriptive means.
+
+## Product mean profiles
+
+The table below provides the full product profile as **means only**, without standard errors or post-hoc letters. It is useful for technical review and for checking whether the executive narrative above is supported by the full attribute set.
+
+```{r}
+#| results: asis
+if (nrow(report_means) > 0) {
+  means_for_output <- report_means |>
+    dplyr::mutate(Modality = label_modality(outcome))
+
+  modality_order <- c("Appearance", "Aroma", "Flavour", "Mouthfeel", "Other")
+  modality_order <- modality_order[modality_order %in% unique(means_for_output$Modality)]
+
+  for (modality_name in modality_order) {
+    modality_tbl <- means_for_output |>
+      dplyr::filter(Modality == modality_name) |>
+      dplyr::select(Attribute = outcome, dplyr::all_of(product_cols))
+
+    if (nrow(modality_tbl) > 0) {
+      cat("\n### ", modality_name, " mean profile\n\n", sep = "")
+      cat(knitr::kable(modality_tbl, format = "pipe", digits = 1), sep = "\n")
+      cat("\n\n")
+    }
+  }
+} else {
+  cat("\nProduct means table is not available yet.\n")
+}
+```
+
+## Multivariate analysis: product map
+
+Principal Component Analysis was used to visualise the overall sensory space across products. The first two principal components explain 57.4% of the variance in the product profiles, with PC1 explaining 38.7% and PC2 explaining 18.6%. No PCA tables are included here; the interpretation is based on the correlation circle and the product individuals graph.
+
+### PCA correlation circle
+
+The correlation circle shows which attributes drive the major product contrasts. Attributes pointing in the same direction are positively associated; attributes in opposite directions describe opposing sensory profiles.
+
+The main contrast on PC1 is between a **fruit/confectionary pole** and a **heavier green/savoury pole**. The positive side of PC1 is most closely associated with tropical flavour, banana aroma/flavour, confectionary flavour, tropical aroma, and confectionary aroma. The negative side is associated more with leathery, animalic, musty, medicinal, woody, and cooked vegetal notes. This means that products positioned to the positive side of the map should be read as more fruit-forward and confectionary, while products positioned to the negative side should be read as heavier, greener, more savoury, or less fresh in aromatic character.
+
+PC2 adds a secondary separation. It is influenced by attributes such as stone fruit, honey, body, dried fruits, ethanol, floral, and caramelised-sugar notes on one side, and vanilla/sweetness-related directions on the other. This component should be interpreted as a refinement of product style rather than the main product decision axis.
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(figures_dir, "pca", "pca_correlation_circle.png"), width = "85%")
+```
+
+### PCA individuals graph
+
+The product map shows the relative positioning of the product profiles. Products far apart have distinct overall sensory profiles; products close together are more similar.
+
+The individuals graph confirms that **Trial 5** is the main product-by-product differentiator. It is positioned far from the control and the other trials on PC1, which is consistent with the univariate mean results showing higher tropical, banana, confectionary, floral, and orchard notes. The **Control** sits on the opposite side of the same axis, consistent with its higher musty, leathery, cooked vegetal, and green aroma profile. Trials 1, 2, 3, 4, and 6 occupy intermediate or more local positions, meaning that they are differentiated in selected directions but do not redefine the product space as strongly as Trial 5.
+
+For internal R&D interpretation, the PCA does not by itself identify a “winner”. It shows that Trial 5 is the clearest sensory departure from the control. Whether that is desirable depends on the still-unknown target profile.
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(figures_dir, "pca", "pca_scores_plot.png"), width = "85%")
+```
+
+## Product sensory profiles
+
+The spider plots compare each trial with the control. They are useful for executive discussion because they show the profile shape rather than one attribute at a time.
+
+```{r}
+#| results: asis
+spider_dir <- file.path(figures_dir, "spiderplots")
+spider_pngs <- if (dir.exists(spider_dir)) {
+  list.files(spider_dir, pattern = "\\.png$", full.names = TRUE)
+} else {
+  character(0)
+}
+
+if (length(spider_pngs) == 0) {
+  cat("No spider profile plots available.\n")
+} else {
+  for (f in spider_pngs) {
+    cat("\n###", get_spider_title(f), "\n\n")
+    show_image_if_exists(f, width = "90%")
+    cat("\n")
+  }
+}
+```
+
+## Part 2 — Rerun with Overall Fruity as a derived attribute
+
+This second analysis keeps the same modelling logic as the full dataset analysis, but replaces the detailed fruit attributes with one conceptual category: **Overall Fruity**. The new attribute is calculated as the row-wise mean of stone fruit, tropical, banana, and orchard aroma/flavour variables. **Dried Fruits (Aroma)** and **Dried Fruits (Flavour)** are not included in Overall Fruity and remain separate attributes in the rerun.
+
+The purpose of this rerun is to test whether the fruit-forward pattern seen in the original analysis remains visible when the most closely related fruit descriptors are treated as one higher-level sensory concept rather than as separate aroma and flavour attributes.
+
+### General pattern in the derived-attribute rerun
+
+The derived rerun strengthens the same practical conclusion as the original analysis. **Trial 5 remains the clearest product differentiator**, and the difference is now easier to communicate because the fruit-related signal is summarised directly as **Overall Fruity**. The product effect for Overall Fruity is statistically significant in the mixed model, and Trial 5 has the highest mean score.
+
+The important nuance is that dried-fruit character is now kept separate from Overall Fruity. This means Overall Fruity should be interpreted as a fresher fruit direction driven by stone fruit, tropical, banana, and orchard notes, rather than by dried-fruit character. In this formulation, Trial 5 still separates strongly from the rest of the product set.
+
+The control remains at the lower end of the Overall Fruity profile. This is consistent with the original interpretation that the control is less fruit-forward and more associated with heavier, green, cooked vegetal, musty, or leathery aroma dimensions.
+
+### Executive takeaways from the Overall Fruity rerun
+
+1. **Overall Fruity confirms Trial 5 as the main fruit-forward product.** Trial 5 has the highest Overall Fruity mean and is separated from the other products in the post-hoc grouping.
+2. **Dried fruits are not driving this conclusion.** Because Dried Fruits (Aroma) and Dried Fruits (Flavour) remain separate in this rerun, Overall Fruity reflects stone fruit, tropical, banana, and orchard character.
+3. **The control remains comparatively low on the fresh-fruit profile.** This supports the earlier reading that the control is not positioned as the most fruit-forward product in the current sensory space.
+4. **The higher-level attribute improves communication.** Instead of discussing several fruit descriptors separately, the R&D discussion can refer to a single Overall Fruity axis while still retaining dried fruits as a separate attribute.
+5. **This remains a sensory direction, not a final product recommendation.** The product identities and target profile are still unknown.
+
+### Direction of product differences in the derived rerun
+
+The table below summarises the highest and lowest products for the attributes that remain differentiated in the derived rerun. It includes Overall Fruity together with the other retained dependent variables.
+
+```{r}
+if (nrow(derived_letter_summary) > 0) {
+  render_executive_table(
+    derived_letter_summary,
+    "Table 3: Highest and lowest product means in the Overall Fruity rerun",
+    digits = 1
+  )
+} else {
+  cat("
+No derived-rerun mean summary is available.
+")
+}
+```
+
+### Overall Fruity product means
+
+The Overall Fruity row provides the clearest summary of the new conceptual attribute. Trial 5 is highest, while the control is among the lowest products on this fresh-fruit axis.
+
+```{r}
+if (nrow(derived_report_means) > 0) {
+  overall_fruity_tbl <- derived_report_means |>
+    dplyr::filter(outcome == "Overall Fruity")
+  render_executive_table(
+    overall_fruity_tbl,
+    "Table 4: Overall Fruity means by product",
+    digits = 1
+  )
+} else {
+  cat("
+Overall Fruity means are not available.
+")
+}
+```
+
+### Product mean profiles in the derived rerun
+
+The table below provides the full means-only profile for the derived rerun. It keeps Dried Fruits as a separate aroma/flavour attribute and adds Overall Fruity as the combined conceptual fruit category.
+
+```{r}
+#| results: asis
+if (nrow(derived_report_means) > 0) {
+  derived_means_for_output <- derived_report_means |>
+    dplyr::mutate(Modality = label_modality(outcome))
+
+  modality_order <- c("Appearance", "Aroma", "Flavour", "Mouthfeel", "Other")
+  modality_order <- modality_order[modality_order %in% unique(derived_means_for_output$Modality)]
+
+  for (modality_name in modality_order) {
+    modality_tbl <- derived_means_for_output |>
+      dplyr::filter(Modality == modality_name) |>
+      dplyr::select(Attribute = outcome, dplyr::all_of(derived_product_cols))
+
+    if (nrow(modality_tbl) > 0) {
+      cat("
+#### ", modality_name, " mean profile — Overall Fruity rerun
+
+", sep = "")
+      cat(knitr::kable(modality_tbl, format = "pipe", digits = 1), sep = "
+")
+      cat("
+
+")
+    }
+  }
+} else {
+  cat("
+Derived-rerun product means table is not available.
+")
+}
+```
+
+### PCA interpretation with Overall Fruity present
+
+The PCA was rerun using the updated dependent-variable set: the original non-fruit attributes, Dried Fruits retained separately, and Overall Fruity replacing the fresh-fruit aroma/flavour descriptors. The first two dimensions explain `r derived_pc12`% of the product-profile variance (`r derived_pc1`% on PC1 and `r derived_pc2`% on PC2).
+
+The PCA should now be read slightly differently from the original PCA. The separate tropical, banana, stone-fruit, and orchard arrows are no longer present as individual drivers; their shared contribution is represented by **Overall Fruity**. This makes the map less granular but more useful for executive interpretation. If Overall Fruity points in the same region as Trial 5, it confirms that Trial 5 is separated by a broad fresh-fruity profile rather than by one isolated fruit descriptor.
+
+Dried Fruits should be interpreted separately in this PCA. If it sits away from Overall Fruity, that means the panel is distinguishing dried-fruit character from fresh/tropical/orchard fruit character. If it sits near Overall Fruity, then dried fruit is sensory-adjacent in this dataset even though it was not included in the derived variable.
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(derived_figures_dir, "pca", "pca_correlation_circle.png"), width = "85%")
+```
+
+The individuals graph shows how the products move when the fresh-fruit descriptors are consolidated. The main question for R&D is whether Trial 5 remains separated from the control and other trials. In the current rerun, the univariate Overall Fruity result already indicates that Trial 5 remains the clearest fruit-forward product; the PCA should be used as a supporting product-map view rather than as a replacement for that result.
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(derived_figures_dir, "pca", "pca_scores_plot.png"), width = "85%")
+```
+
+### Derived-rerun sensory profiles
+
+The profile plots below are generated from the significant attributes in the derived rerun. They are useful for checking whether the Overall Fruity conclusion is consistent with the broader product fingerprint.
+
+```{r}
+#| results: asis
+derived_spider_dir <- file.path(derived_figures_dir, "spiderplots")
+derived_spider_pngs <- if (dir.exists(derived_spider_dir)) {
+  list.files(derived_spider_dir, pattern = "\\.png$", full.names = TRUE)
+} else {
+  character(0)
+}
+
+if (length(derived_spider_pngs) == 0) {
+  cat("No derived-rerun profile plots available.
+")
+} else {
+  for (f in derived_spider_pngs) {
+    cat("
+###", get_spider_title(f), "— Overall Fruity rerun
+
+")
+    show_image_if_exists(f, width = "90%")
+    cat("
+")
+  }
+}
+```
+
+## Analytical notes and limitations
+
+The current analysis is suitable for an internal R&D client review, but a few points should be kept in mind.
+
+- The products are anonymised. The report can identify sensory differences, but it cannot yet recommend a formulation or process route because the identities of Trial 1–Trial 6 are unknown.
+- The intended product target is unknown. Trial 5 is the clearest sensory departure from the control, but whether that direction is desirable remains an R&D decision.
+- No attributes were specified as strategically desirable or undesirable beyond the statistical and descriptive interpretation in this report.
+- The current post-hoc procedure remains **LSD**. This is appropriate for exploratory internal R&D screening; the report does not switch to a more conservative procedure.
+- The current model includes assessor/user as a random effect and product as the fixed factor. No formulation covariates, process covariates, replicate effects, or consumer preference outcomes are included in this report.
+- Outlier handling removed extreme values by setting them to missing. This should be confirmed as the intended policy before using the report for final decision-making.
+- The report is based on the current analysis outputs generated in this Sensanalyser project. If the raw data, factor structure, or renaming dictionary changes, this report should be re-rendered.

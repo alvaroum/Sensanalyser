@@ -1,0 +1,96 @@
+# model_presets.yaml
+# Sensanalyser Model Presets
+#
+# Each preset defines the STRUCTURAL properties of a model design.
+# Column names (fixed_effects, random_effects, repeated_measures_factors)
+# are NEVER stored here — they always come from the user's variable
+# selections in mission_control.R / interactive setup.
+#
+# Structural fields per preset:
+#   description:              Human-readable explanation of the design
+#   interactions:             true/false — include two-way interactions
+#   three_way_interactions:   true/false — include three-way interactions
+#   repeated_measures:        true/false — design has within-subjects factor(s)
+#   engine:                   which R function builds the model
+#
+# Engines available:
+#   rstatix_anova_test  — standard between-subjects ANOVA (stats::aov + rstatix)
+#   afex_aov_car        — repeated-measures / mixed ANOVA (afex::aov_car)
+#   lmerTest_lmer       — linear mixed model (lmerTest::lmer)
+# -----------------------------------------------------------------------
+
+one_way_anova:
+  description: >
+    One-way between-subjects ANOVA. A single fixed factor; each panelist
+    evaluates only one level (e.g. monadic product evaluation by different groups).
+  interactions: false
+  three_way_interactions: false
+  repeated_measures: false
+  engine: rstatix_anova_test
+
+two_way_anova:
+  description: >
+    Two-way between-subjects ANOVA with two-way interactions. Both fixed
+    factors are between-subjects (each panelist assigned to one combination).
+  interactions: true
+  three_way_interactions: false
+  repeated_measures: false
+  engine: rstatix_anova_test
+
+three_way_anova:
+  description: >
+    Three-way between-subjects ANOVA with all interactions. All three factors
+    are between-subjects.
+  interactions: true
+  three_way_interactions: true
+  repeated_measures: false
+  engine: rstatix_anova_test
+
+one_way_repeated:
+  description: >
+    One-way within-subjects (repeated-measures) ANOVA. A single treatment
+    factor; every panelist evaluates all levels (e.g. typical sensory panel
+    where all assessors taste all products).
+  interactions: false
+  three_way_interactions: false
+  repeated_measures: true
+  engine: afex_aov_car
+
+two_way_repeated:
+  description: >
+    Two-way within-subjects ANOVA. Both factors are within-subjects (all
+    panelists complete every combination, e.g. product x session).
+  interactions: true
+  three_way_interactions: false
+  repeated_measures: true
+  engine: afex_aov_car
+
+two_way_mixed:
+  description: >
+    Two-way mixed ANOVA. One within-subjects factor (e.g. product — all
+    panelists taste all products) and one between-subjects factor (e.g.
+    consumer group — each panelist belongs to one group only).
+  interactions: true
+  three_way_interactions: false
+  repeated_measures: true
+  engine: afex_aov_car
+
+three_way_repeated:
+  description: >
+    Three-way within-subjects ANOVA. All three factors are within-subjects
+    (e.g. product x session x replica).
+  interactions: true
+  three_way_interactions: true
+  repeated_measures: true
+  engine: afex_aov_car
+
+linear_mixed_model:
+  description: >
+    Linear mixed model. Fixed effects capture the systematic treatment
+    structure; random effects account for between-panelist variability
+    (typically (1|panelist_id)). Handles unbalanced designs and missing data
+    more robustly than repeated-measures ANOVA.
+  interactions: true
+  three_way_interactions: false
+  repeated_measures: false
+  engine: lmerTest_lmer

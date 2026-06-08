@@ -1,0 +1,58 @@
+# R-specific files
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+*.Rproj.user/
+.Rproj.user/
+
+# R package/build artefacts
+*.tar.gz
+*.tgz
+
+# Quarto and knitr render artefacts
+.quarto/
+_quarto/
+*_cache/
+*_files/
+*.html
+*.pdf
+*.docx
+
+# Raw and processed data are usually project-specific or large.
+# Keep .gitkeep files so the Phase 1 folder structure remains visible in git.
+data/raw/**/*
+!data/raw/.gitkeep
+data/processed/**/*
+!data/processed/.gitkeep
+
+# Regenerable outputs
+outputs/**/*
+!outputs/.gitkeep
+!outputs/tables/.gitkeep
+!outputs/figures/.gitkeep
+!outputs/diagnostics/.gitkeep
+!outputs/logs/.gitkeep
+
+# Logs and console output
+logs/**
+*.log
+*.Rout
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Cache and temporary files
+.cache/
+tmp/
+temp/
+*.tmp
+
+# Local environment files. Never commit secrets or machine-specific settings.
+.env
+.Renviron.local
