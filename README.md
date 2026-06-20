@@ -1,174 +1,100 @@
 # Sensanalyser
 
-Sensanalyser is being restructured into a reusable R workflow for sensory data analysis. The current implementation covers **Phase 1–6**: project scaffolding, safe archiving of legacy scripts, dependency management, reusable data import, dataset discovery, variable selection, YAML-based run configuration, configurable outlier detection/removal, descriptive/profile tables, statistical models, and selectable post-hoc analyses.
+Sensanalyser is a reusable R workflow for sensory data analysis. It uses a **Hub and Spoke** architecture, allowing you to manage multiple distinct client datasets and analysis pipelines from a single central engine, without mixing data or outputs.
 
-For the full phased plan, see [`Sensanalyser_restructuring_plan.md`](Sensanalyser_restructuring_plan.md).
+## Architecture
 
-## Current status
+*   **The Hub (Root Directory):** Contains the core engine (`R/`), standard templates (`templates/`), and the batch execution script (`master_mission_control.R`).
+*   **The Spokes (`projects/`):** Each dataset or client gets its own isolated folder. All raw data, outputs, diagnostic logs, and report documents for a project stay within its folder.
 
-Implemented:
+## How to run
 
-- `Sensanalyser.Rproj`
-- `.gitignore`
-- `mission_control.R`
-- `R/00_initialise_project_structure.R`
-- `R/00_install_dependencies.R`
-- `R/00_setup.R`
-- `R/core_engine.R`
-- `R/functions/package_list.R`
-- `R/functions/data_import_helpers.R`
-- `R/functions/variable_selection_helpers.R`
-- `R/functions/outlier_helpers.R`
-- `R/functions/descriptive_helpers.R`
-- `R/functions/model_helpers.R`
-- `R/functions/posthoc_helpers.R`
-- Standard folders for data, outputs, diagnostics, reports, and modular functions
-- Legacy template scripts archived in `archive/`
-- `data/dictionary/analysis_config.yaml`
-- `data/dictionary/model_presets.yaml`
-- `data/dictionary/renaming_dictionary.yaml`
+### 1. Create a New Project
 
-## How to check the setup
-
-Open the project in RStudio/Positron or run from the Sensanalyser root:
+You can create a new project workspace by running the helper function in the R console:
 
 ```r
-source("R/00_setup.R")
+source("R/functions/project_helpers.R")
+sensanalyser_create_project("projects/my_new_project")
 ```
 
-This checks the folder structure, reports missing packages, loads available packages, and creates a `sensanalyser_setup_summary` object.
+This will safely build out the required subdirectories (`data/`, `outputs/`, `reports/`) and copy the baseline templates (like `project_config.R` and the dictionaries) into the new folder.
+
+### 2. Configure Your Project
+
+Navigate into your new project folder (`projects/my_new_project/`) and open `project_config.R`. 
+Here, you can specify your raw data files and analysis parameters.
+
+**Multi-file Data Loading:** You can provide a vector of files if you want them combined automatically before analysis.
+```r
+project_config <- list(
+  paths = list(
+    raw_data = c("data/raw/batch_1.csv", "data/raw/batch_2.csv")
+  ),
+  analysis = list(
+    dependent_variables = "auto",
+    factors = c("product"),
+    subject_id = "assessor",
+    model_type = "linear_mixed_model"
+  )
+)
+```
+*(If `raw_data = NULL`, Sensanalyser will prompt you to select the files interactively).*
+
+### 3. Launch from Master Mission Control
+
+Open `master_mission_control.R` at the root of the repository.
+Add your project to the `active_projects` list:
+
+```r
+active_projects <- c(
+  "projects/my_new_project"
+  # You can list multiple projects here to run them sequentially!
+)
+```
+
+You can toggle which analysis phases run globally inside `master_mission_control.R`.
+Press **Run All** (Ctrl+Shift+Enter) to execute the pipeline.
+
+---
+
+## Phase Breakdown
+
+Sensanalyser executes a sequential, deterministic pipeline. The major phases currently implemented are:
+
+### Phase 2: Data Import & Variable Selection
+Data import supports `.csv`, `.tsv`, `.txt`, `.xlsx`, and `.xls` files. Multiple files with the same structure are automatically combined using `dplyr::bind_rows`, keeping a trace of their origin. Variables are validated and assigned appropriate types based on the project configuration.
+
+### Phase 3: Outlier Detection
+Outlier detection and policy application are managed via global toggles and dictionary presets.
+Diagnostics are written to `outputs/diagnostics/`. If `apply_outlier_policy = FALSE`, the pipeline detects outliers but leaves the dataset intact.
+
+### Phase 4: Descriptives
+Generates formatted long and wide tables (including mean ± SE) written directly to your project's `outputs/tables/` folder. Display labels are automatically resolved using `data/dictionary/renaming_dictionary.yaml`.
+
+### Phase 5: Statistical Models
+Supported model routes include:
+- Between-subject ANOVA (`rstatix::anova_test`)
+- Repeated-measures ANOVA (`afex::aov_car`)
+- Linear mixed models (`lmerTest::lmer`)
+
+### Phase 6: Post-hoc Analyses
+Post-hoc comparisons (e.g., Tukey, Bonferroni) are generated based on significant terms from the models. Interaction terms (like `product|replica`) are fully supported. Outputs include pairwise test tables and compact significance letters ready for reporting.
+
+### Phase 8 & 9: (Under ongoing refinement)
+Phase 8 covers multivariate outputs (PCA, HCPC, MFA) and figure generation. Phase 9 binds all outputs into a structured Quarto manuscript report within your project's `reports/` folder.
+
+---
 
 ## Installing dependencies
 
-If setup reports missing packages, run:
+If the engine complains about missing packages, run:
 
 ```r
 source("R/00_install_dependencies.R")
 sensanalyser_install_dependencies(categories = "all")
 ```
 
-For non-interactive installation:
+## Legacy Files
 
-```r
-source("R/00_install_dependencies.R")
-sensanalyser_install_dependencies(categories = "all", ask_user = FALSE)
-```
-
-## Phase 2 usage
-
-Data import supports `.csv`, `.tsv`, `.txt`, `.xlsx`, and `.xls` files:
-
-```r
-source("R/functions/data_import_helpers.R")
-data <- load_sensanalyser_data("data/raw/Raw.data.sting.csv")
-```
-
-Dataset discovery and variable selection:
-
-```r
-source("R/functions/variable_selection_helpers.R")
-discover_dataset_structure(data)
-selections <- select_analysis_variables(data, config)
-validate_variable_selections(data, selections)
-```
-
-## Phase 3 usage
-
-Outlier detection and policy application are configured in `mission_control.R`:
-
-```r
-config$toggles$run_outlier_detection <- TRUE
-config$toggles$apply_outlier_policy <- TRUE
-config$analysis$outlier_policy <- "remove_extreme"      # keep_all, remove_extreme, remove_all
-config$analysis$outlier_removal_action <- "set_na"      # set_na, drop_row
-config$analysis$outlier_grouping_factors <- NULL         # NULL defaults to selected factors
-```
-
-Diagnostics are written to:
-
-- `outputs/diagnostics/outliers_all.csv`
-- `outputs/diagnostics/outlier_policy_applied.csv`
-- `outputs/diagnostics/outlier_decision_summary.csv`
-
-If `apply_outlier_policy = FALSE`, the pipeline still detects outliers and records what would have been targeted, but leaves the working dataset unchanged.
-
-## Phase 4 usage
-
-Descriptive tables are configured in `mission_control.R`:
-
-```r
-config$toggles$run_descriptives <- TRUE
-config$analysis$descriptive_grouping_factors <- NULL  # NULL defaults to selected factors
-```
-
-Generated tables:
-
-- `outputs/tables/descriptives_long.csv`
-- `outputs/tables/descriptives_wide_mean_se.csv`
-- `outputs/tables/descriptives_wide_means_only.csv`
-- `outputs/tables/profile_table.csv`
-
-Display labels are read from `data/dictionary/renaming_dictionary.yaml` when available.
-
-## Phase 5 usage
-
-Statistical models are configured in `mission_control.R`:
-
-```r
-config$toggles$run_anova_models <- TRUE
-config$toggles$run_mixed_models <- FALSE
-config$analysis$model_type <- "one_way_anova"          # see data/dictionary/model_presets.yaml
-config$analysis$model_fixed_effects <- NULL             # NULL uses selected factors/preset defaults
-```
-
-Supported model routes now include:
-
-- between-subject ANOVA through `rstatix::anova_test`
-- repeated-measures ANOVA through `afex::aov_car`
-- linear mixed models through `lmerTest::lmer`
-
-Generated outputs:
-
-- `outputs/tables/results_model.csv`
-- `outputs/diagnostics/model_warnings.csv`
-
-## Phase 6 usage
-
-Post-hoc analyses are configured in `mission_control.R`:
-
-```r
-config$toggles$run_posthoc <- TRUE
-config$analysis$posthoc_method <- "tukey"        # tukey, bonferroni, lsd
-config$analysis$posthoc_focal_terms <- NULL      # NULL derives significant terms; or use c("product")
-```
-
-Interaction-style terms are supported:
-
-- `product|replica` means compare product levels within each replica level.
-- `product:replica` expands both directions: product within replica and replica within product.
-
-Generated outputs:
-
-- `outputs/tables/posthoc_pairwise.csv`
-- `outputs/tables/posthoc_letters.csv`
-- `outputs/tables/posthoc_method_summary.csv`
-
-Letters are suppressed when the corresponding omnibus term is non-significant or unavailable.
-
-## Archived legacy scripts
-
-The original template scripts are preserved in `archive/`:
-
-- `ANOVA.R`
-- `Descriptive.R`
-- `Spider plots script.R`
-- `descriptives_spiderplots.R`
-- `outliers_identification.R`
-- `pca.R`
-- `mfa.R`
-
-The old raw-data examples are also archived, and copies are available in `data/raw/` for local testing. Raw data files are ignored by git by default.
-
-## Next phase
-
-Phase 7 will implement the final table system and manuscript-style table consolidation.
+Old scripts from the single-folder architecture have been retained for reference in the `archive/` folder, but are no longer executed by the main pipeline.
