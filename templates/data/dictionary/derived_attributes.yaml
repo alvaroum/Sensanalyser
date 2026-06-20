@@ -1,0 +1,149 @@
+# derived_attributes.yaml
+# Project-specific derived variables for the current Sensanalyser dataset.
+#
+# Raw variables remain untouched in data/raw. These definitions add derived
+# conceptual columns to the working dataset before modelling.
+#
+# Method:
+#   mean = row-wise mean across source_variables, ignoring missing values.
+#
+# Project-specific rules:
+# - Overall Fruity excludes Dried Fruits.
+# - Saltiness, Woody and Vanilla are excluded from the project-specific rerun.
+# - Aroma/flavour pairs are merged where appropriate, except variables already
+#   included in Overall Fruity.
+
+derived_attributes:
+  overall_fruity:
+    label: "Overall Fruity"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - stone_fruits_a
+      - stone_fruits_f
+      - tropical_a
+      - tropical_f
+      - banana_a
+      - banana_f
+      - orchard_a
+      - orchard_f
+
+  dried_fruits:
+    label: "Dried Fruits"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - dried_fruits_a
+      - dried_fruits_f
+
+  animalic:
+    label: "Animalic"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - animalic_a
+      - animalic_f
+
+  medicinal:
+    label: "Medicinal"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - medicinal_a
+      - medicinal_f
+
+  solvent:
+    label: "Solvent"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - solvent_a
+      - solvent_f
+
+  molasses:
+    label: "Molasses"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - molasses_a
+      - molasses_f
+
+  honey:
+    label: "Honey"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - honey_a
+      - honey_f
+
+  leathery:
+    label: "Leathery"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - leathery_a
+      - leathery_f
+
+  musty:
+    label: "Musty"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - musty_a
+      - musty_f
+
+  confectionary:
+    label: "Confectionary"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - confectionary_a
+      - confectionary_f
+
+  floral:
+    label: "Floral"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - floral_a
+      - floral_f
+
+  caramelised_sugar:
+    label: "Caramelised Sugar"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - caramalized_sugar_a
+      - caramalized_sugar_f
+
+  green:
+    label: "Green"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - green_a
+      - green_f
+
+  cooked_vegetal:
+    label: "Cooked Vegetal"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - cooked_vegetal_a
+      - cooked_vegetal_f
+
+  baking_spices:
+    label: "Baking Spices"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - baking_spices_a
+      - baking_spices_f
+
+  ethanol:
+    label: "Ethanol"
+    method: mean
+    min_non_missing: 1
+    source_variables:
+      - ethanol_a
+      - ethanol_f

@@ -72,6 +72,8 @@ analysis:
   outlier_removal_action: set_na
   outlier_grouping_factors: ~
   descriptive_grouping_factors: ~
+  pca_significant_only: true
+  hcpc_n_clusters: 4
   alpha: 0.05
 toggles:
   interactive_setup: yes

@@ -68,15 +68,15 @@ outcomes:
   ethanol_a:            "Ethanol (Aroma)"
 
   # Mouthfeel attributes (_m suffix)
-  sweetness_m:          "Sweetness (Mouthfeel)"
-  sourness_m:           "Sourness (Mouthfeel)"
-  bitterness_m:         "Bitterness (Mouthfeel)"
-  saltiness_m:          "Saltiness (Mouthfeel)"
-  tingeling_m:          "Tingling (Mouthfeel)"
-  silkiness_m:          "Silkiness (Mouthfeel)"
-  body_m:               "Body (Mouthfeel)"
-  burn_m:               "Burn (Mouthfeel)"
-  coating_m:            "Coating (Mouthfeel)"
+  sweetness_m:          "Sweetness"
+  sourness_m:           "Sourness"
+  bitterness_m:         "Bitterness"
+  saltiness_m:          "Saltiness"
+  tingeling_m:          "Tingling"
+  silkiness_m:          "Silkiness"
+  body_m:               "Body"
+  burn_m:               "Burn"
+  coating_m:            "Coating"
 
   # Flavour attributes (_f suffix)
   stone_fruits_f:       "Stone Fruits (Flavour)"
@@ -103,3 +103,18 @@ outcomes:
 
   # Project-specific derived conceptual attributes
   overall_fruity:       "Overall Fruity"
+  dried_fruits:         "Dried Fruits"
+  animalic:             "Animalic"
+  medicinal:            "Medicinal"
+  solvent:              "Solvent"
+  molasses:             "Molasses"
+  honey:                "Honey"
+  leathery:             "Leathery"
+  musty:                "Musty"
+  confectionary:        "Confectionary"
+  floral:               "Floral"
+  caramelised_sugar:    "Caramelised Sugar"
+  green:                "Green"
+  cooked_vegetal:       "Cooked Vegetal"
+  baking_spices:        "Baking Spices"
+  ethanol:              "Ethanol"

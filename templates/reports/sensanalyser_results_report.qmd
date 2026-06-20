@@ -141,6 +141,8 @@ run_summary <- safe_read_csv(file.path(tables_dir, "run_configuration_summary.cs
 pca_eigen <- safe_read_csv(file.path(tables_dir, "pca", "pca_eigenvalues.csv"))
 pca_scores <- safe_read_csv(file.path(tables_dir, "pca", "pca_group_scores.csv"))
 pca_vars <- safe_read_csv(file.path(tables_dir, "pca", "pca_variable_coordinates.csv"))
+hcpc_clusters <- safe_read_csv(file.path(tables_dir, "hcpc", "hcpc_clusters.csv"))
+hcpc_descriptors <- safe_read_csv(file.path(tables_dir, "hcpc", "hcpc_quanti_descriptors.csv"))
 outlier_summary <- safe_read_csv(file.path(diagnostics_dir, "outlier_decision_summary.csv"))
 
 product_cols <- setdiff(names(report_wide), "outcome")
@@ -203,8 +205,24 @@ derived_results_model <- safe_read_csv(file.path(derived_tables_dir, "results_mo
 derived_report_wide <- safe_read_csv(file.path(derived_tables_dir, "report_format_wide.csv"))
 derived_report_means <- safe_read_csv(file.path(derived_tables_dir, "report_format_wide_means.csv"))
 derived_pca_eigen <- safe_read_csv(file.path(derived_tables_dir, "pca", "pca_eigenvalues.csv"))
+derived_hcpc_clusters <- safe_read_csv(file.path(derived_tables_dir, "hcpc", "hcpc_clusters.csv"))
+derived_hcpc_descriptors <- safe_read_csv(file.path(derived_tables_dir, "hcpc", "hcpc_quanti_descriptors.csv"))
+
+# Final project-specific scaled rerun outputs --------------------------------
+scaled_root <- file.path(project_root, "outputs", "project_specific_scaled")
+scaled_tables_dir <- file.path(scaled_root, "tables")
+scaled_figures_dir <- file.path(scaled_root, "figures")
+
+scaled_results_model <- safe_read_csv(file.path(scaled_tables_dir, "results_model.csv"))
+scaled_report_wide <- safe_read_csv(file.path(scaled_tables_dir, "report_format_wide.csv"))
+scaled_report_means <- safe_read_csv(file.path(scaled_tables_dir, "report_format_wide_means.csv"))
+scaled_pca_eigen <- safe_read_csv(file.path(scaled_tables_dir, "pca", "pca_eigenvalues.csv"))
+scaled_hcpc_clusters <- safe_read_csv(file.path(scaled_tables_dir, "hcpc", "hcpc_clusters.csv"))
+scaled_hcpc_descriptors <- safe_read_csv(file.path(scaled_tables_dir, "hcpc", "hcpc_quanti_descriptors.csv"))
+scaled_hcpc_profiles <- safe_read_csv(file.path(scaled_tables_dir, "hcpc", "hcpc_cluster_profiles.csv"))
 
 derived_product_cols <- setdiff(names(derived_report_means), "outcome")
+scaled_product_cols <- setdiff(names(scaled_report_means), "outcome")
 
 if (nrow(derived_results_model) > 0 && !"statistic" %in% names(derived_results_model) && "F" %in% names(derived_results_model)) {
   derived_results_model <- derived_results_model |> dplyr::rename(statistic = F)
@@ -232,7 +250,47 @@ make_direction_summary <- function(wide_tbl) {
     dplyr::select(Modality, `Sensory attribute`, `Highest product`, `Highest mean`, `Lowest product`, `Lowest mean`)
 }
 
+format_cluster_members <- function(cluster_tbl) {
+  if (is.null(cluster_tbl) || nrow(cluster_tbl) == 0 || !all(c("cluster", "product") %in% names(cluster_tbl))) {
+    return(tibble::tibble())
+  }
+  cluster_tbl |>
+    dplyr::arrange(as.numeric(.data$cluster), .data$product) |>
+    dplyr::group_by(.data$cluster) |>
+    dplyr::summarise(Products = paste(.data$product, collapse = ", "), .groups = "drop") |>
+    dplyr::rename(Cluster = "cluster")
+}
+
+top_cluster_descriptors <- function(desc_tbl, max_per_cluster = 4) {
+  if (is.null(desc_tbl) || nrow(desc_tbl) == 0) return(tibble::tibble())
+  desc_tbl |>
+    dplyr::mutate(direction = dplyr::if_else(.data$v.test >= 0, "Higher than average", "Lower than average")) |>
+    dplyr::group_by(.data$cluster) |>
+    dplyr::arrange(.data$p.value, dplyr::desc(abs(.data$v.test)), .by_group = TRUE) |>
+    dplyr::slice_head(n = max_per_cluster) |>
+    dplyr::ungroup() |>
+    dplyr::transmute(
+      Cluster = .data$cluster,
+      Variable = gsub("\\.", " ", .data$variable),
+      Direction = .data$direction,
+      `Cluster mean` = round(.data$`Mean in category`, 1),
+      `Overall mean` = round(.data$`Overall mean`, 1),
+      `p-value` = signif(.data$p.value, 3)
+    )
+}
+
+hcpc_cluster_members <- format_cluster_members(hcpc_clusters)
+hcpc_top_descriptors <- top_cluster_descriptors(hcpc_descriptors)
+
 derived_letter_summary <- make_direction_summary(derived_report_wide)
+derived_hcpc_cluster_members <- format_cluster_members(derived_hcpc_clusters)
+derived_hcpc_top_descriptors <- top_cluster_descriptors(derived_hcpc_descriptors)
+scaled_letter_summary <- make_direction_summary(scaled_report_wide)
+scaled_hcpc_cluster_members <- format_cluster_members(scaled_hcpc_clusters)
+scaled_hcpc_top_descriptors <- top_cluster_descriptors(scaled_hcpc_descriptors)
+scaled_pc1 <- if (nrow(scaled_pca_eigen) >= 1) round(scaled_pca_eigen$variance_percent[1], 1) else NA_real_
+scaled_pc2 <- if (nrow(scaled_pca_eigen) >= 2) round(scaled_pca_eigen$variance_percent[2], 1) else NA_real_
+scaled_pc12 <- if (nrow(scaled_pca_eigen) >= 2) round(scaled_pca_eigen$cumulative_percent[2], 1) else NA_real_
 
 derived_overall_row <- if (nrow(derived_results_model) > 0) {
   derived_results_model |> dplyr::filter(outcome == "overall_fruity")
@@ -358,6 +416,48 @@ For internal R&D interpretation, the PCA does not by itself identify a “winner
 ```{r}
 #| results: asis
 show_image_if_exists(file.path(figures_dir, "pca", "pca_scores_plot.png"), width = "85%")
+```
+
+## Hierarchical cluster analysis
+
+A hierarchical cluster analysis was added to the pipeline using the same product-level sensory mean table that feeds the PCA. The method follows the logic of the archived HCPC workflow: product means are first projected into a PCA space, and hierarchical clustering is then applied to group products with similar overall sensory profiles.
+
+Because there are only seven products, the cluster solution should be interpreted as an exploratory product map rather than as a definitive segmentation. The most useful question is whether the cluster analysis confirms the main sensory story from the PCA and mixed-model results.
+
+In the full-attribute analysis, the fixed four-cluster solution separates **Trial 5** into its own cluster. This supports the earlier conclusion that Trial 5 has a distinct sensory profile, driven by fruit/confectionary notes and lower heavy or animalic/leathery notes. The control clusters with Trial 1, indicating that these two products are closest in the overall sensory space. Trial 2 clusters with Trial 6, while Trial 3 clusters with Trial 4. This gives a more executive-friendly segmentation than the automatic solution: one clearly fruit/confectionary product, one control-like pair, and two intermediate trial pairs.
+
+### Product cluster membership
+
+```{r}
+if (nrow(hcpc_cluster_members) > 0) {
+  render_executive_table(hcpc_cluster_members, "Table 3: HCPC product cluster membership", digits = 1)
+} else {
+  cat("\nHCPC cluster membership is not available.\n")
+}
+```
+
+### Main attributes describing the clusters
+
+```{r}
+if (nrow(hcpc_top_descriptors) > 0) {
+  render_executive_table(hcpc_top_descriptors, "Table 4: Main sensory descriptors of HCPC clusters", digits = 1)
+} else {
+  cat("\nHCPC cluster descriptors are not available.\n")
+}
+```
+
+### HCPC dendrogram
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(figures_dir, "hcpc", "hcpc_dendrogram.png"), width = "85%")
+```
+
+### HCPC cluster map
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(figures_dir, "hcpc", "hcpc_cluster_map.png"), width = "85%")
 ```
 
 ## Product sensory profiles
@@ -501,6 +601,48 @@ The individuals graph shows how the products move when the fresh-fruit descripto
 show_image_if_exists(file.path(derived_figures_dir, "pca", "pca_scores_plot.png"), width = "85%")
 ```
 
+### Hierarchical cluster analysis with Overall Fruity present
+
+The cluster analysis was also rerun on the updated dependent-variable set. This version replaces the individual fresh-fruit descriptors with **Overall Fruity**, while keeping Dried Fruits as separate aroma and flavour attributes. The cluster solution is therefore a useful check of whether the product grouping is still driven by a broad fresh-fruity direction after reducing the dimensionality of the fruit vocabulary.
+
+The derived-rerun four-cluster solution again isolates **Trial 5** in its own cluster. In this version, the descriptor table identifies **Overall Fruity** as one of the defining positive attributes of the Trial 5 cluster, together with confectionary notes and lower animalic/leathery/medicinal character. This strengthens the interpretation that Trial 5 is not merely high in one isolated fruit descriptor; it is broadly fruit-forward in the consolidated sensory space.
+
+The control again clusters with Trial 1, which supports the conclusion that these two products are closest in the overall sensory profile after the fresh-fruit attributes are collapsed into Overall Fruity. Trial 2 clusters with Trial 6, and Trial 3 clusters with Trial 4, matching the four-cluster structure observed in the full-attribute analysis.
+
+#### Product cluster membership — Overall Fruity rerun
+
+```{r}
+if (nrow(derived_hcpc_cluster_members) > 0) {
+  render_executive_table(derived_hcpc_cluster_members, "Table 7: HCPC product cluster membership — Overall Fruity rerun", digits = 1)
+} else {
+  cat("\nDerived-rerun HCPC cluster membership is not available.\n")
+}
+```
+
+#### Main cluster descriptors — Overall Fruity rerun
+
+```{r}
+if (nrow(derived_hcpc_top_descriptors) > 0) {
+  render_executive_table(derived_hcpc_top_descriptors, "Table 8: Main sensory descriptors of derived-rerun HCPC clusters", digits = 1)
+} else {
+  cat("\nDerived-rerun HCPC descriptors are not available.\n")
+}
+```
+
+#### HCPC dendrogram — Overall Fruity rerun
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(derived_figures_dir, "hcpc", "hcpc_dendrogram.png"), width = "85%")
+```
+
+#### HCPC cluster map — Overall Fruity rerun
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(derived_figures_dir, "hcpc", "hcpc_cluster_map.png"), width = "85%")
+```
+
 ### Derived-rerun sensory profiles
 
 The profile plots below are generated from the significant attributes in the derived rerun. They are useful for checking whether the Overall Fruity conclusion is consistent with the broader product fingerprint.
@@ -529,6 +671,170 @@ if (length(derived_spider_pngs) == 0) {
   }
 }
 ```
+
+## Part 3 — Final project-specific scaled and consolidated analysis
+
+This final rerun applies the project-specific decisions made after reviewing the first two analyses. It should be treated as the most interpretable version for the current project.
+
+The changes are:
+
+- all selected sensory values were divided by 10 so the report is interpreted on the intended **0–10** scale rather than a 0–100 line-scale export;
+- **Saltiness**, **Woody**, and **Vanilla** were removed from this project-specific analysis;
+- fresh fruit-related aroma/flavour attributes were combined into **Overall Fruity**;
+- Dried Fruits was kept separate from Overall Fruity;
+- other matching aroma/flavour pairs were combined into single conceptual attributes such as **Confectionary**, **Floral**, **Musty**, **Cooked Vegetal**, and **Ethanol**.
+
+### Interpreting the 1–9 anchors
+
+The sensory scale should be read with the low anchor around **1** and the high anchor around **9**. This matters for interpretation. A statistically significant product difference is not automatically a large sensory impact if the absolute means remain close to the low end of the scale.
+
+In this final rerun, most aroma/flavour attributes sit between roughly **1 and 3**. That means several differences are real in relative terms, but they are generally low-intensity to low-moderate sensory differences in absolute terms. The clearest practical exception is not that any product reaches a very high fruit intensity, but that **Trial 5 is consistently higher than the rest on the same low-to-moderate scale** for Overall Fruity and Confectionary. Appearance attributes such as Transparency sit near the high end of the scale, whereas most aroma/flavour attributes remain much closer to the low anchor.
+
+### General pattern in the final rerun
+
+The final rerun simplifies the sensory story substantially. The main statistically differentiated attributes are **Overall Fruity**, **Confectionary**, **Floral**, **Musty**, and **Cooked Vegetal**. These are the attributes that should drive the R&D discussion, not the full original list of detailed aroma and flavour terms.
+
+**Trial 5** remains the clearest sensory differentiator. It is highest for **Overall Fruity** and **Confectionary**, and it is low for heavier attributes such as Animalic and Medicinal. However, on the 1–9 anchor interpretation, Trial 5 should be described as *relatively more fruity and confectionary*, not as intensely fruity in absolute terms. Its Overall Fruity mean is around 2.2 on the 0–10 scale, which is above the other products but still far from the high anchor.
+
+The **Control** is comparatively low on Overall Fruity and Confectionary and higher on **Cooked Vegetal** and **Musty**. These attributes are also not high in absolute terms, but they help explain why the control sits away from Trial 5 in the product space. The practical interpretation is therefore a relative profile contrast: Trial 5 is more fresh-fruity/confectionary, while the control is more cooked-vegetal/musty and less fruity.
+
+### Direction of product differences in the final rerun
+
+```{r}
+if (nrow(scaled_letter_summary) > 0) {
+  render_executive_table(
+    scaled_letter_summary,
+    "Table 9: Highest and lowest product means in the final scaled rerun",
+    digits = 1
+  )
+} else {
+  cat("
+No final-rerun mean summary is available.
+")
+}
+```
+
+### Final project-specific product mean profile
+
+The table below is the most useful table for R&D discussion because it uses the corrected 0–10 scale, removes the excluded attributes, and reports consolidated conceptual attributes.
+
+```{r}
+if (nrow(scaled_report_means) > 0) {
+  render_executive_table(
+    scaled_report_means,
+    "Table 10: Final project-specific mean profile on the 0–10 scale",
+    digits = 1
+  )
+} else {
+  cat("
+Final project-specific means are not available.
+")
+}
+```
+
+### PCA interpretation for the final rerun
+
+The final PCA explains `r scaled_pc12`% of the product-profile variance in the first two dimensions (`r scaled_pc1`% on PC1 and `r scaled_pc2`% on PC2). Because the analysis uses consolidated attributes, this map is easier to interpret than the original full-attribute PCA.
+
+The main axis should be read as a contrast between products that are relatively more **Overall Fruity / Confectionary / Floral** and products that are relatively more **Musty / Cooked Vegetal / heavier**. Again, the word “more” is relative: most of these attributes are not close to the high anchor of 9.
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(scaled_figures_dir, "pca", "pca_correlation_circle.png"), width = "85%")
+```
+
+The individuals plot should be read as a product-positioning map. Trial 5 remains separated from the control because it has the clearest relative fruit/confectionary profile. Trial 1, Trial 2, and Trial 6 are closer to each other in the final HCPC solution, whereas Trial 3 and Trial 4 form another pair.
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(scaled_figures_dir, "pca", "pca_scores_plot.png"), width = "85%")
+```
+
+### Four-cluster HCPC solution for the final rerun
+
+The four-cluster solution gives the most concise segmentation of the products in the final project-specific analysis.
+
+```{r}
+if (nrow(scaled_hcpc_cluster_members) > 0) {
+  render_executive_table(
+    scaled_hcpc_cluster_members,
+    "Table 11: Final HCPC product cluster membership",
+    digits = 1
+  )
+} else {
+  cat("
+Final HCPC cluster membership is not available.
+")
+}
+```
+
+```{r}
+if (nrow(scaled_hcpc_top_descriptors) > 0) {
+  render_executive_table(
+    scaled_hcpc_top_descriptors,
+    "Table 12: Main descriptors of final HCPC clusters",
+    digits = 1
+  )
+} else {
+  cat("\nFinal HCPC descriptors are not available.\n")
+}
+```
+
+The descriptor table above only lists attributes that are statistically characteristic of a cluster. To avoid over-interpreting missing descriptor rows, the cluster mean profile below shows the actual mean of every final attribute within each cluster.
+
+```{r}
+if (nrow(scaled_hcpc_profiles) > 0) {
+  render_executive_table(
+    scaled_hcpc_profiles,
+    "Table 13: Final HCPC cluster mean profiles",
+    digits = 1
+  )
+} else {
+  cat("\nFinal HCPC cluster mean profiles are not available.\n")
+}
+```
+
+The final clustering places **Trial 5** in its own cluster, confirming its distinctive profile. Trial 1, Trial 2, and Trial 6 cluster together; Trial 3 and Trial 4 form a second pair; and the Control forms its own cluster, mainly because it is relatively higher on Cooked Vegetal and lower on the fruit/confectionary direction.
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(scaled_figures_dir, "hcpc", "hcpc_dendrogram.png"), width = "85%")
+```
+
+```{r}
+#| results: asis
+show_image_if_exists(file.path(scaled_figures_dir, "hcpc", "hcpc_cluster_map.png"), width = "85%")
+```
+
+### Final project-specific profile plots
+
+The profile plots below are generated from the significant attributes in the final scaled analysis. They provide a visual check of the same pattern shown in the tables: Trial 5 is relatively higher on Overall Fruity and Confectionary, while the control is relatively more cooked-vegetal/musty and lower on the fruit/confectionary direction.
+
+```{r}
+#| results: asis
+scaled_spider_dir <- file.path(scaled_figures_dir, "spiderplots")
+scaled_spider_pngs <- if (dir.exists(scaled_spider_dir)) {
+  list.files(scaled_spider_dir, pattern = "\\.png$", full.names = TRUE)
+} else {
+  character(0)
+}
+
+if (length(scaled_spider_pngs) == 0) {
+  cat("No final scaled profile plots available.\n")
+} else {
+  for (f in scaled_spider_pngs) {
+    cat("\n####", get_spider_title(f), "— final scaled analysis\n\n")
+    show_image_if_exists(f, width = "90%")
+    cat("\n")
+  }
+}
+```
+
+### Final interpretation for R&D
+
+The final project-specific analysis supports a restrained interpretation. **Trial 5 is the most distinctive product and is relatively more Overall Fruity and Confectionary than the other products.** This is consistent across mixed models, PCA, spider/profile plots, and HCPC clustering. However, because the corrected scale uses anchors from 1 to 9, the absolute means show that these are not high-intensity fruit notes. They are relative differences within a generally low-intensity aroma/flavour space.
+
+For R&D, the key decision is therefore not whether Trial 5 is “strongly fruity” in an absolute sense. The better question is whether the relative move toward fruit/confectionary and away from cooked-vegetal/musty/heavy notes is the desired product direction.
 
 ## Analytical notes and limitations
 
