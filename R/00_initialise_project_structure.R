@@ -20,16 +20,10 @@ sensanalyser_initialise_structure <- function(root = here::here()) {
   # workflow. Later phases will add files inside these folders, but the folder
   # names should remain stable so paths in mission_control.R can be reused.
   required_dirs <- c(
-    "data/raw",
-    "data/processed",
-    "data/dictionary",
-    "outputs/tables",
-    "outputs/figures",
-    "outputs/diagnostics",
-    "outputs/logs",
-    "reports",
     "R/functions",
-    "archive"
+    "archive",
+    "projects",
+    "templates"
   )
 
   created_dirs <- character(0)
