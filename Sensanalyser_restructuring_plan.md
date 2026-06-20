@@ -250,8 +250,9 @@ Replace hardcoded filenames and column ranges with reusable data import and vari
 
 1. Create `data_import_helpers.R`.
 2. Support at least `.csv`, `.tsv`, `.xlsx`, and `.xls` files.
-3. Add interactive file selection when `config$paths$raw_data` is `NULL`.
-4. Save the selected raw-data path into a run log.
+3. Support importing and binding multiple raw data files that share the same column structure, so they can be analysed together when necessary.
+4. Add interactive file selection when `config$paths$raw_data` is `NULL` (supporting single or multiple file selection).
+5. Save the selected raw-data path(s) into a run log.
 5. Create `variable_selection_helpers.R`.
 6. Allow the user to select:
    - dependent variables;
@@ -617,33 +618,34 @@ and practical sensory/product interpretation.
 ### Objective
 Turn Sensanalyser from a single working analysis folder into a reusable **pipeline/template** that can be applied to many independent client/project folders without mixing raw data, outputs, tables, figures, diagnostics, or rendered reports.
 
-The key design decision is to keep one reusable Sensanalyser engine and create a separate project workspace for every study. The current repository can remain the engine plus example/prototype project, but the long-term workflow should be:
+The key design decision is to keep one reusable Sensanalyser engine ("The Hub") and create a separate project workspace for every study ("The Spokes"). A central `master_mission_control.R` will act as a single command center, allowing you to run multiple projects in batch or individually.
 
 ```text
-Sensanalyser/                         # reusable engine and templates
+Sensanalyser/                         # reusable engine and templates (The Hub)
 ├── R/
 │   ├── core_engine.R
 │   └── functions/
 ├── templates/
-│   ├── mission_control.R
+│   ├── project_config.R
 │   ├── data/dictionary/analysis_config.yaml
 │   ├── data/dictionary/renaming_dictionary.yaml
 │   ├── data/dictionary/model_presets.yaml
 │   └── reports/sensanalyser_results_report.qmd
+├── master_mission_control.R          # The single command center
 └── README.md
 
-Sensanalyser_projects/
-├── 2026-025-client-project-a/        # isolated client/project workspace
+projects/                             # isolated client/project workspaces (The Spokes)
+├── 2026-025-client-project-a/        
 │   ├── data/
 │   ├── outputs/
 │   ├── reports/
-│   ├── mission_control.R
+│   ├── project_config.R              # tiny file with project-specific variables/models
 │   └── project_manifest.yaml
 └── 2026-026-client-project-b/
     └── ...
 ```
 
-Each project workspace must be self-contained for analysis inputs and outputs. The engine should provide functions, templates, and defaults, but it should never write project data into the engine folder unless explicitly running the built-in example project.
+Each project workspace must be self-contained for analysis inputs and outputs. The `master_mission_control.R` will iterate over a list of active projects, load their small `project_config.R` files, merge them with global toggles, and execute the core engine. The engine should provide functions, templates, and defaults, but it should never write project data into the engine folder.
 
 ### Design principles
 
@@ -724,7 +726,7 @@ The manifest should be used for metadata and safety checks, not as a replacement
 
 Create a `templates/` folder containing clean starting versions of:
 
-- `templates/mission_control.R`
+- `templates/project_config.R`
 - `templates/data/dictionary/analysis_config.yaml`
 - `templates/data/dictionary/renaming_dictionary.yaml`
 - `templates/data/dictionary/model_presets.yaml`
@@ -771,15 +773,16 @@ The report should:
 Create a high-level wrapper:
 
 ```r
-sensanalyser_run_project <- function(project_dir, config_file = "mission_control.R") {
+sensanalyser_run_project <- function(project_dir, global_config = list()) {
   project_root <- sensanalyser_resolve_project_root(project_dir)
   sensanalyser_validate_project(project_root)
-  # load project-local mission_control.R/config
-  # run_sensanalyser_pipeline(config)
+  # load project-local project_config.R
+  # merge with global_config from master_mission_control.R
+  # run_sensanalyser_pipeline(final_config)
 }
 ```
 
-This should become the preferred non-interactive entry point for future projects.
+This should become the engine used by `master_mission_control.R` to run specific projects.
 
 #### 10.7 Add safety checks
 
