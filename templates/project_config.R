@@ -28,18 +28,23 @@ project_config <- list(
   analysis = list(
     # Dependent variables (sensory attributes to analyse).
     # "auto" detects all numeric columns not used as factors.
+    # Set to NULL to be prompted interactively.
     dependent_variables = "auto",
 
     # Fixed factors (independent variables, e.g. product, treatment).
+    # Set to NULL to be prompted interactively.
     factors = c("product"),
 
     # Panelist / assessor / subject column name.
+    # Set to NULL to be prompted interactively.
     subject_id = "assessor",
 
-    # Repeated-measures factors
+    # Repeated-measures factors.
+    # Set to NULL to be prompted interactively.
     repeated_measures_factors = c("product"),
 
-    # Random effects (for mixed models)
+    # Random effects (for mixed models).
+    # Set to NULL to be prompted interactively.
     random_effects = c("assessor"),
 
     # Model type. Options: 
