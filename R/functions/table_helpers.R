@@ -447,13 +447,6 @@ render_executive_table <- function(tbl, title = NULL, digits = 2) {
         letter_part <- ifelse(has_letters, gsub(".*\\^([a-zA-Z]+)\\^$", "\\1", vals), "")
         
         ft <- .compose_superscript_col(ft, col, base_part, letter_part)
-      } else if (any(grepl("[a-zA-Z]+$", vals))) {
-        # Fallback for plain letter suffixes (e.g. "a" at the end)
-        has_letters <- grepl("[a-zA-Z]+$", vals)
-        base_part <- ifelse(has_letters, sub("[a-zA-Z]+$", "", vals), vals)
-        letter_part <- ifelse(has_letters, regmatches(vals, regexpr("[a-zA-Z]+$", vals)), "")
-        
-        ft <- .compose_superscript_col(ft, col, base_part, letter_part)
       }
     }
 

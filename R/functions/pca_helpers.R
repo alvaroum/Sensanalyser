@@ -11,9 +11,11 @@
 #' @param data Working dataset
 #' @param selections Variable selections
 #' @param config Full config list
+#' @param posthoc_result Optional Phase 6 post-hoc result. Used when
+#'   config$analysis$pca_significant_only is TRUE.
 #' @return List with PCA object, tables, and file paths
 #' @export
-run_sensory_pca <- function(data, selections, config) {
+run_sensory_pca <- function(data, selections, config, posthoc_result = NULL, hcpc_result = NULL) {
   if (!isTRUE(config$toggles$run_pca)) {
     return(list(skipped = TRUE, reason = "run_pca is FALSE"))
   }
@@ -29,6 +31,19 @@ run_sensory_pca <- function(data, selections, config) {
   dvs <- selections$dependent_variables
   dvs <- dvs[dvs %in% names(data)]
   dvs <- dvs[vapply(dvs, function(x) is.numeric(data[[x]]), logical(1))]
+
+  if (isTRUE(config$analysis$pca_significant_only)) {
+    sig_dvs <- character(0)
+    if (!is.null(posthoc_result) && !is.null(posthoc_result$posthoc_letters) &&
+        nrow(posthoc_result$posthoc_letters) > 0) {
+      sig_dvs <- posthoc_result$posthoc_letters |>
+        dplyr::filter(.data$omnibus_significant == TRUE) |>
+        dplyr::pull(.data$outcome) |>
+        unique()
+    }
+    dvs <- intersect(dvs, sig_dvs)
+    cli::cli_alert_info("PCA: restricted to {length(dvs)} significant attribute(s).")
+  }
 
   if (length(dvs) < 2) {
     cli::cli_alert_warning("Skipping PCA: need at least 2 numeric dependent variables.")
@@ -107,20 +122,50 @@ run_sensory_pca <- function(data, selections, config) {
 
   scores_2d <- scores %>% dplyr::select("group_level", "PC1", "PC2")
 
+  # Join HCPC cluster membership if available so points can be coloured by cluster.
+  has_clusters <- !is.null(hcpc_result) &&
+    !isTRUE(hcpc_result$skipped) &&
+    !is.null(hcpc_result$clusters) &&
+    nrow(hcpc_result$clusters) > 0
+
+  if (has_clusters) {
+    scores_2d <- dplyr::left_join(
+      scores_2d,
+      hcpc_result$clusters,
+      by = c("group_level" = "product")
+    )
+  }
+
   # ── Individuals (scores) plot ────────────────────────────────────────────────
-  scores_plot <- ggplot2::ggplot(scores_2d,
-    ggplot2::aes(x = .data$PC1, y = .data$PC2)) +
-    ggplot2::geom_hline(yintercept = 0, color = "grey85") +
-    ggplot2::geom_vline(xintercept = 0, color = "grey85") +
-    ggplot2::geom_point(color = "#1B9E77", size = 3) +
-    ggrepel::geom_text_repel(ggplot2::aes(label = .data$group_level),
-                             color = "#1B9E77", size = 3.5) +
-    ggplot2::labs(
-      title = "PCA – Individuals",
-      x = sprintf("PC1 (%.1f%%)", eig$variance_percent[1]),
-      y = sprintf("PC2 (%.1f%%)", eig$variance_percent[2])
-    ) +
-    ggplot2::theme_minimal(base_size = 11)
+  if (has_clusters && "cluster" %in% names(scores_2d)) {
+    scores_plot <- ggplot2::ggplot(scores_2d,
+      ggplot2::aes(x = .data$PC1, y = .data$PC2, color = .data$cluster)) +
+      ggplot2::geom_hline(yintercept = 0, color = "grey85") +
+      ggplot2::geom_vline(xintercept = 0, color = "grey85") +
+      ggplot2::geom_point(size = 3) +
+      ggrepel::geom_text_repel(ggplot2::aes(label = .data$group_level), size = 3.5) +
+      ggplot2::scale_color_brewer(palette = "Dark2", name = "Cluster") +
+      ggplot2::labs(
+        title = "PCA – Individuals (coloured by cluster)",
+        x = sprintf("PC1 (%.1f%%)", eig$variance_percent[1]),
+        y = sprintf("PC2 (%.1f%%)", eig$variance_percent[2])
+      ) +
+      ggplot2::theme_minimal(base_size = 11)
+  } else {
+    scores_plot <- ggplot2::ggplot(scores_2d,
+      ggplot2::aes(x = .data$PC1, y = .data$PC2)) +
+      ggplot2::geom_hline(yintercept = 0, color = "grey85") +
+      ggplot2::geom_vline(xintercept = 0, color = "grey85") +
+      ggplot2::geom_point(color = "#1B9E77", size = 3) +
+      ggrepel::geom_text_repel(ggplot2::aes(label = .data$group_level),
+                               color = "#1B9E77", size = 3.5) +
+      ggplot2::labs(
+        title = "PCA – Individuals",
+        x = sprintf("PC1 (%.1f%%)", eig$variance_percent[1]),
+        y = sprintf("PC2 (%.1f%%)", eig$variance_percent[2])
+      ) +
+      ggplot2::theme_minimal(base_size = 11)
+  }
 
   ggplot2::ggsave(filename = scores_path, plot = scores_plot,
                   width = width, height = width, dpi = dpi)

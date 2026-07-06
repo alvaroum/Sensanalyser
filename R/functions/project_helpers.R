@@ -159,19 +159,70 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
       include_mean_se = TRUE,
       include_letters = TRUE
     ),
-    derived_attribute_options = list(digits = NULL),
+    derived_attribute_options = list(digits = NULL, output_label = NULL),
     report_options = list(output_formats = c("html", "docx"))
   )
-  
+
   # If the project explicitly overrides any toggles, apply them
   if (!is.null(project_config$toggles)) {
     for (nm in names(project_config$toggles)) {
       final_config$toggles[[nm]] <- project_config$toggles[[nm]]
     }
   }
+
+  # Merge project-level derived_attribute_options (e.g. output_label, digits)
+  if (!is.null(project_config$derived_attribute_options)) {
+    final_config$derived_attribute_options <- utils::modifyList(
+      final_config$derived_attribute_options,
+      project_config$derived_attribute_options
+    )
+  }
   
   # Tell core engine where the root is
   final_config$project_root <- project_root
   
   run_sensanalyser_pipeline(final_config)
+
+  # ── PRODUCT SUBSET ANALYSES ──────────────────────────────────────────────
+  # Each named entry in product_subsets reruns the full pipeline on a filtered
+  # dataset and writes its outputs to a dedicated subfolder, so subset results
+  # never overwrite the main analysis outputs.
+  subsets <- project_config$product_subsets
+  if (!is.null(subsets) && length(subsets) > 0) {
+
+    saved_cfg_path <- final_config$paths$analysis_config
+    if (is.null(saved_cfg_path) || !file.exists(saved_cfg_path)) {
+      cli::cli_alert_warning(
+        "Product subsets skipped: no analysis_config.yaml found at {saved_cfg_path}.",
+        "Run the main analysis first so variable selections are saved."
+      )
+    } else {
+      for (subset_name in names(subsets)) {
+        subset_def <- subsets[[subset_name]]
+
+        cli::cli_rule()
+        cli::cli_h1(sprintf("Sensanalyser — Product Subset: %s", subset_name))
+
+        subset_config <- final_config
+
+        # Non-interactive: no prompts, no YAML write.
+        # Setting dependent_variables to NULL triggers the YAML-load block in
+        # core_engine so this subset uses the same variable selections as the
+        # main run rather than re-running auto-detection.
+        subset_config$toggles$interactive_setup      <- FALSE
+        subset_config$analysis$dependent_variables   <- NULL
+
+        # Redirect all outputs to a dedicated subfolder.
+        subset_config$paths$table_root       <- file.path(final_config$paths$table_root,       subset_name)
+        subset_config$paths$figure_root      <- file.path(final_config$paths$figure_root,      subset_name)
+        subset_config$paths$diagnostics_root <- file.path(final_config$paths$diagnostics_root, subset_name)
+        subset_config$paths$logs_root        <- file.path(final_config$paths$logs_root,        subset_name)
+
+        # Attach the filter definition so core_engine applies it after data load.
+        subset_config$product_subset <- c(subset_def, list(label = subset_name))
+
+        run_sensanalyser_pipeline(subset_config)
+      }
+    }
+  }
 }

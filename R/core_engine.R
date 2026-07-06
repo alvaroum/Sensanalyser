@@ -105,8 +105,15 @@ run_sensanalyser_pipeline <- function(config) {
             cli::cli_alert_success("Cleared directory: {d}")
           }
         }
+
+        # 3. Delete clean data CSVs (data/clean/ lives next to data/dictionary/)
+        clean_dir <- file.path(dirname(dirname(saved_cfg_path)), "clean")
+        if (dir.exists(clean_dir)) {
+          unlink(file.path(clean_dir, "*"), recursive = FALSE)
+          cli::cli_alert_success("Cleared clean data: {clean_dir}")
+        }
         
-        # 3. Delete rendered reports in the reports folder
+        # 4. Delete rendered reports in the reports folder
         report_dir <- dirname(here::here(config$paths$report_template))
         if (dir.exists(report_dir)) {
           report_files <- list.files(
@@ -148,6 +155,28 @@ run_sensanalyser_pipeline <- function(config) {
   # the working dataset while keeping data_raw unchanged for auditability.
   if (isTRUE(pipeline_state$config$toggles$create_derived_attributes)) {
     pipeline_state <- .phase2_derived_attributes(pipeline_state)
+
+    # If output_label is set, redirect all outputs to a named subfolder so
+    # derived-attribute runs never overwrite the regular analysis outputs.
+    output_label <- trimws(
+      pipeline_state$config$derived_attribute_options$output_label %||% ""
+    )
+    if (nzchar(output_label)) {
+      p <- pipeline_state$config$paths
+      pipeline_state$config$paths$table_root       <- file.path(p$table_root,       output_label)
+      pipeline_state$config$paths$figure_root      <- file.path(p$figure_root,      output_label)
+      pipeline_state$config$paths$diagnostics_root <- file.path(p$diagnostics_root, output_label)
+      pipeline_state$config$paths$logs_root        <- file.path(p$logs_root,        output_label)
+      cli::cli_alert_info(
+        "Derived-attribute run — outputs redirected to '{output_label}/' subfolders."
+      )
+    }
+  }
+
+  # ── PRODUCT SUBSET FILTER ───────────────────────────────────────────────
+  # Applied only on subset runs launched from project_helpers after the main run.
+  if (!is.null(pipeline_state$config$product_subset)) {
+    pipeline_state <- .apply_product_subset_filter(pipeline_state)
   }
 
   # ── DISCOVERY MODE ──────────────────────────────────────────────────────
@@ -223,14 +252,20 @@ run_sensanalyser_pipeline <- function(config) {
 
   cli::cli_h2("Phase 2: Data Import")
 
-  # Load from YAML only in reproducible/non-interactive mode when the user has
-  # not provided an explicit dependent-variable selection in mission_control.R.
-  # Explicit mission_control settings always take priority.
+  # In non-interactive mode, restore settings from the saved analysis_config.yaml.
+  # Two independent reasons to load the YAML:
+  #   (a) raw_data is NULL  → must restore the data file path
+  #   (b) dependent_variables is NULL or "auto"  → restore full analysis selections
+  # Explicit character vectors in project_config always take priority over YAML.
   saved_config_path <- config$paths$analysis_config
+
+  needs_yaml_for_path     <- is.null(config$paths$raw_data)
+  needs_yaml_for_analysis <- is.null(config$analysis$dependent_variables) ||
+                             identical(config$analysis$dependent_variables, "auto")
 
   if (!is.null(saved_config_path) && file.exists(saved_config_path) &&
       !isTRUE(config$toggles$interactive_setup) &&
-      is.null(config$analysis$dependent_variables)) {
+      (needs_yaml_for_path || needs_yaml_for_analysis)) {
 
     cli::cli_alert_info("Loading saved analysis config from YAML.")
     saved_cfg <- read_analysis_config(saved_config_path)
@@ -242,19 +277,21 @@ run_sensanalyser_pipeline <- function(config) {
     is_template <- length(saved_dvs) > 0 && all(saved_dvs %in% placeholder_dvs)
 
     if (!is_template) {
-      config$analysis <- saved_cfg$analysis
+      # Restore full analysis settings only when DVs were not explicitly set.
+      if (needs_yaml_for_analysis) {
+        config$analysis <- saved_cfg$analysis
 
-      # Saved toggles are optional. If present, let them override the defaults
-      # for reproducible reruns, but keep interactive_setup FALSE because this
-      # branch is specifically the non-interactive restore path.
-      if (!is.null(saved_cfg$toggles)) {
-        config$toggles <- utils::modifyList(config$toggles, saved_cfg$toggles)
-        config$toggles$interactive_setup <- FALSE
+        # Saved toggles are optional. If present, let them override the defaults
+        # for reproducible reruns, but keep interactive_setup FALSE because this
+        # branch is specifically the non-interactive restore path.
+        if (!is.null(saved_cfg$toggles)) {
+          config$toggles <- utils::modifyList(config$toggles, saved_cfg$toggles)
+          config$toggles$interactive_setup <- FALSE
+        }
       }
 
-      # Override data file from saved config only when mission_control did not
-      # specify one. This keeps explicit user paths authoritative.
-      if (is.null(config$paths$raw_data) && !is.null(saved_cfg$meta$data_file) &&
+      # Always restore the data file path when it was not explicitly provided.
+      if (needs_yaml_for_path && !is.null(saved_cfg$meta$data_file) &&
           !identical(saved_cfg$meta$data_file, "not set")) {
         config$paths$raw_data <- saved_cfg$meta$data_file
       }
@@ -266,11 +303,12 @@ run_sensanalyser_pipeline <- function(config) {
     pipeline_state$config <- config
   }
 
-  # Load the raw data file
+  # Load the raw data file.
   data_raw <- load_sensanalyser_data(
     path              = config$paths$raw_data,
     interactive_setup = isTRUE(config$toggles$interactive_setup),
-    verbose           = TRUE
+    verbose           = TRUE,
+    config            = config
   )
 
   # Store the resolved path back in config for logging
@@ -278,6 +316,49 @@ run_sensanalyser_pipeline <- function(config) {
 
   pipeline_state$data_raw <- data_raw
   pipeline_state$data     <- data_raw   # working copy
+
+  pipeline_state
+}
+
+# ---------------------------------------------------------------------------
+# PRODUCT SUBSET FILTER
+# ---------------------------------------------------------------------------
+
+#' Internal: filter data to a product subset definition
+#'
+#' @keywords internal
+.apply_product_subset_filter <- function(pipeline_state) {
+  subset     <- pipeline_state$config$product_subset
+  config     <- pipeline_state$config
+  factor_col <- (config$analysis$factors %||% character(0))[1] %||% "product"
+
+  if (!factor_col %in% names(pipeline_state$data)) {
+    cli::cli_alert_warning(
+      "Product subset '{subset$label}': column '{factor_col}' not found — filter skipped."
+    )
+    return(pipeline_state)
+  }
+
+  n_before <- nrow(pipeline_state$data)
+
+  if (!is.null(subset$exclude) && length(subset$exclude) > 0) {
+    keep <- !pipeline_state$data[[factor_col]] %in% subset$exclude
+    pipeline_state$data     <- pipeline_state$data[keep, , drop = FALSE]
+    pipeline_state$data_raw <- pipeline_state$data_raw[
+      !pipeline_state$data_raw[[factor_col]] %in% subset$exclude, , drop = FALSE]
+    cli::cli_alert_success(
+      "Subset '{subset$label}': excluded {length(subset$exclude)} product(s) — {n_before - nrow(pipeline_state$data)} rows removed."
+    )
+
+  } else if (!is.null(subset$include) && length(subset$include) > 0) {
+    keep <- pipeline_state$data[[factor_col]] %in% subset$include
+    pipeline_state$data     <- pipeline_state$data[keep, , drop = FALSE]
+    pipeline_state$data_raw <- pipeline_state$data_raw[
+      pipeline_state$data_raw[[factor_col]] %in% subset$include, , drop = FALSE]
+    cli::cli_alert_success(
+      "Subset '{subset$label}': keeping {length(subset$include)} product(s) — {nrow(pipeline_state$data)} rows retained."
+    )
+  }
 
   pipeline_state
 }
@@ -561,6 +642,7 @@ run_sensanalyser_pipeline <- function(config) {
 
   # Future helper files (sourced only if they exist yet)
   optional_helpers <- c(
+    "data_cleaning_helpers.R",
     "derived_attribute_helpers.R",
     "outlier_helpers.R",
     "descriptive_helpers.R",
@@ -570,6 +652,7 @@ run_sensanalyser_pipeline <- function(config) {
     "figure_helpers.R",
     "pca_helpers.R",
     "mfa_helpers.R",
+    "hcpc_helpers.R",
     "report_helpers.R"
   )
 

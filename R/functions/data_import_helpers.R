@@ -63,118 +63,142 @@ load_sensanalyser_data <- function(
     sheet             = 1,
     skip              = 0,
     na_strings        = c("", "NA", "N/A", "na", "n/a", ".", "-"),
-    verbose           = TRUE) {
+    verbose           = TRUE,
+    config            = NULL) {
 
-  # Resolve file path and read data --------------------------------------------
-  data <- NULL
-  if (interactive_setup) {
+  # Resolve file paths ---------------------------------------------------------
+  if (interactive_setup && is.null(path)) {
     while (TRUE) {
-      resolved_path <- .resolve_data_path(path)
-
-      if (is.null(resolved_path) || !nzchar(resolved_path)) {
+      resolved_path <- .resolve_data_path(NULL, multiple = TRUE)
+      if (is.null(resolved_path) || !nzchar(resolved_path[1])) {
         abort_choice <- utils::askYesNo("No file selected. Do you want to abort the pipeline?", default = TRUE)
         if (isTRUE(abort_choice) || is.na(abort_choice)) {
           cli::cli_abort("Data loading cancelled by user.")
         }
-        path <- NULL
         next
       }
-
-      if (!file.exists(resolved_path)) {
-        cli::cli_alert_danger("File not found: {resolved_path}. Please try again.")
-        path <- NULL
-        next
-      }
-
-      ext <- tolower(tools::file_ext(resolved_path))
-      supported_exts <- c("csv", "tsv", "txt", "xlsx", "xls")
-      if (!ext %in% supported_exts) {
-        cli::cli_alert_danger(
-          "Unsupported file format: .{ext}. Expected one of: .csv, .tsv, .txt, .xlsx, .xls. Please try again."
-        )
-        path <- NULL
-        next
-      }
-
-      # Attempt to read the file
-      loaded_data <- tryCatch({
-        if (verbose) {
-          cli::cli_h2("Loading Data")
-          cli::cli_inform("File: {.path {resolved_path}}")
-          cli::cli_inform("Format: .{ext}")
-        }
-
-        switch(
-          ext,
-          csv  = .read_delimited(resolved_path, sep = ",", skip = skip, na_strings = na_strings),
-          tsv  = .read_delimited(resolved_path, sep = "\t", skip = skip, na_strings = na_strings),
-          txt  = .read_delimited(resolved_path, sep = NULL, skip = skip, na_strings = na_strings),
-          xlsx = .read_excel_file(resolved_path, sheet = sheet, skip = skip, na_strings = na_strings),
-          xls  = .read_excel_file(resolved_path, sheet = sheet, skip = skip, na_strings = na_strings)
-        )
-      }, error = function(e) {
-        cli::cli_alert_danger("Failed to parse the file: {e$message}")
-        NULL
-      })
-
-      if (!is.null(loaded_data)) {
-        path <- resolved_path
-        data <- loaded_data
-        break
-      }
-
-      path <- NULL
+      path <- resolved_path
+      break
     }
   } else {
-    path <- .resolve_data_path(path)
-
-    if (is.null(path) || !nzchar(path)) {
+    if (is.null(path)) {
       cli::cli_abort("No file selected. Aborting data load.")
     }
+    path <- .resolve_data_path(path)
+  }
 
-    if (!file.exists(path)) {
-      cli::cli_abort("File not found: {path}")
-    }
+  if (any(!file.exists(path))) {
+    cli::cli_abort("One or more files not found: {paste(path[!file.exists(path)], collapse = ', ')}")
+  }
 
-    ext <- tolower(tools::file_ext(path))
+  # Read and bind data --------------------------------------------------------
+  if (verbose && length(path) > 1) {
+    cli::cli_h2("Loading Multiple Data Files")
+  }
+  
+  data_list <- lapply(path, function(p) {
+    ext <- tolower(tools::file_ext(p))
     supported_exts <- c("csv", "tsv", "txt", "xlsx", "xls")
     if (!ext %in% supported_exts) {
-      cli::cli_abort("Unsupported file format: .{ext}\nExpected one of: .csv, .tsv, .txt, .xlsx, .xls")
+      cli::cli_abort("Unsupported file format: .{ext} for file {p}. Expected one of: .csv, .tsv, .txt, .xlsx, .xls")
     }
 
     if (verbose) {
-      cli::cli_h2("Loading Data")
-      cli::cli_inform("File: {.path {path}}")
-      cli::cli_inform("Format: .{ext}")
+      if (length(path) == 1) cli::cli_h2("Loading Data")
+      cli::cli_inform("File: {.path {p}}")
+      if (length(path) == 1) cli::cli_inform("Format: .{ext}")
     }
 
-    data <- switch(
-      ext,
-      csv  = .read_delimited(path, sep = ",", skip = skip, na_strings = na_strings),
-      tsv  = .read_delimited(path, sep = "\t", skip = skip, na_strings = na_strings),
-      txt  = .read_delimited(path, sep = NULL, skip = skip, na_strings = na_strings),
-      xlsx = .read_excel_file(path, sheet = sheet, skip = skip, na_strings = na_strings),
-      xls  = .read_excel_file(path, sheet = sheet, skip = skip, na_strings = na_strings)
-    )
-  }
+    loaded_data <- tryCatch({
+      switch(
+        ext,
+        csv  = .read_delimited(p, sep = ",", skip = skip, na_strings = na_strings),
+        tsv  = .read_delimited(p, sep = "\t", skip = skip, na_strings = na_strings),
+        txt  = .read_delimited(p, sep = NULL, skip = skip, na_strings = na_strings),
+        xlsx = .clean_or_read_excel(p, sheet = sheet, skip = skip, na_strings = na_strings),
+        xls  = .clean_or_read_excel(p, sheet = sheet, skip = skip, na_strings = na_strings)
+      )
+    }, error = function(e) {
+      cli::cli_abort("Failed to parse the file {p}: {e$message}")
+    })
+    
+    # Add source_file tracker if multiple files
+    if (length(path) > 1) {
+      loaded_data$source_file <- basename(p)
+    }
+    
+    return(loaded_data)
+  })
+
+  # Bind them all
+  data <- tryCatch({
+    dplyr::bind_rows(data_list)
+  }, error = function(e) {
+    cli::cli_abort("Failed to combine multiple data files. Do they have the same column structure? Error: {e$message}")
+  })
 
   # Clean column names --------------------------------------------------------
   if (clean_names) {
     data <- janitor::clean_names(data)
   }
 
+  # Collapse case-only variants (e.g. "panelist a" / "panelist a", "Test" / "test") so
+  # the same panelist, product, or factor level isn't split into duplicate
+  # categories just because capitalization drifted across raw files/sessions.
+  data <- .canonicalize_case_variants(data)
+
   # Store the resolved source path on the tibble. The core engine uses this
   # attribute to write reproducible YAML configs and run logs. Without this,
   # a dataset selected interactively would load correctly but the selected file
   # path would be lost after import.
-  attr(data, "source_path") <- normalizePath(path, mustWork = TRUE)
+  attr(data, "source_path") <- path
 
   # Log file path and session info --------------------------------------------
-  .log_data_load(attr(data, "source_path"), data)
+  .log_data_load(attr(data, "source_path"), data, config)
 
   # Print summary -------------------------------------------------------------
   if (verbose) {
     .print_data_summary(data)
+  }
+
+  data
+}
+
+#' Collapse case-only variants within character columns
+#'
+#' @description
+#' For every character column, values that are identical once lower-cased
+#' and trimmed (e.g. "panelist a" / "panelist a", "Test" / "test") are rewritten to a
+#' single canonical spelling — the most frequently occurring original
+#' casing for that value, with ties broken by first appearance. This runs
+#' on the fully combined dataset so drift across different raw files (e.g.
+#' one QDA session typing a name in Title Case, another in lower case) is
+#' unified rather than treated as distinct panelists/products/factor levels.
+#'
+#' @param data A tibble/data frame.
+#' @param exclude Character vector of column names to leave untouched.
+#'   Defaults to \code{"source_file"}, whose casing reflects a real file
+#'   name rather than a data value.
+#' @return \code{data} with character columns case-unified.
+#' @keywords internal
+.canonicalize_case_variants <- function(data, exclude = "source_file") {
+  char_cols <- names(data)[vapply(data, is.character, logical(1))]
+  char_cols <- setdiff(char_cols, exclude)
+
+  for (col in char_cols) {
+    x   <- data[[col]]
+    key <- tolower(trimws(x))
+
+    non_na <- !is.na(x)
+    if (!any(non_na)) next
+
+    canon_by_key <- tapply(x[non_na], key[non_na], function(v) {
+      counts <- table(v)
+      top    <- names(counts)[counts == max(counts)]
+      if (length(top) == 1) top else v[v %in% top][1]
+    })
+
+    data[[col]][non_na] <- unname(canon_by_key[key[non_na]])
   }
 
   data
@@ -239,6 +263,33 @@ load_sensanalyser_data <- function(
   )
 }
 
+#' Clean a QDA Excel export or fall back to a plain read
+#'
+#' When `sensanalyser_clean_raw_excel` is available (loaded from
+#' data_cleaning_helpers.R), it is used to clean the file and the result is
+#' also saved to a sibling `data/clean/` folder. Otherwise, falls back to
+#' `.read_excel_file` so the function is safe to call before the cleaning
+#' helpers are sourced.
+#'
+#' @keywords internal
+.clean_or_read_excel <- function(path, sheet, skip, na_strings) {
+  if (!exists("sensanalyser_clean_raw_excel", mode = "function")) {
+    return(.read_excel_file(path, sheet = sheet, skip = skip, na_strings = na_strings))
+  }
+
+  cli::cli_inform("Cleaning QDA Excel export: {.path {basename(path)}}")
+  cleaned <- sensanalyser_clean_raw_excel(path)
+
+  # Save a clean CSV alongside the raw file for reproducibility
+  clean_dir <- file.path(dirname(dirname(path)), "clean")
+  if (!dir.exists(clean_dir)) dir.create(clean_dir, recursive = TRUE)
+  clean_csv <- file.path(clean_dir, paste0(tools::file_path_sans_ext(basename(path)), ".csv"))
+  readr::write_csv(cleaned, clean_csv)
+  cli::cli_alert_success("Saved clean CSV: {.path {clean_csv}}")
+
+  cleaned
+}
+
 # ---------------------------------------------------------------------------
 # INTERACTIVE FILE SELECTION
 # ---------------------------------------------------------------------------
@@ -256,7 +307,7 @@ load_sensanalyser_data <- function(
 #'   5. Console readline fallback (headless / CI environments)
 #'
 #' @keywords internal
-.resolve_data_path <- function(path) {
+.resolve_data_path <- function(path, multiple = FALSE) {
   if (!is.null(path)) {
     return(normalizePath(path, mustWork = FALSE))
   }
@@ -265,12 +316,12 @@ load_sensanalyser_data <- function(
 
   # 1. Native macOS AppleScript Dialog — very robust on macOS, works in RStudio/Positron/Terminal
   if (identical(Sys.info()[["sysname"]], "Darwin")) {
-    selected <- .choose_file_macos()
-    if (!is.null(selected) && nzchar(selected)) return(selected)
+    selected <- .choose_file_macos(multiple = multiple)
+    if (!is.null(selected) && all(nzchar(selected))) return(selected)
   }
 
   # 2. RStudio API picker (available in both RStudio and Positron if compatibility layer supports it)
-  if (requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable()) {
+  if (!multiple && requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable()) {
     selected <- tryCatch(
       rstudioapi::selectFile(
         caption  = "Select Sensory Data File",
@@ -284,7 +335,7 @@ load_sensanalyser_data <- function(
 
   # 3. IDE native dialogs (RStudio/Positron) — file.choose() invokes
   #    the native IDE dialog window, working even during source().
-  if (.is_rstudio_session()) {
+  if (!multiple && .is_rstudio_session()) {
     selected <- tryCatch(file.choose(), error = function(e) NULL)
     if (!is.null(selected) && nzchar(selected)) return(selected)
   }
@@ -294,7 +345,7 @@ load_sensanalyser_data <- function(
     selected <- tryCatch(
       tcltk::tk_choose.files(
         caption = "Select Sensory Data File",
-        multi   = FALSE,
+        multi   = multiple,
         filters = matrix(
           c("Data files", "*.csv *.tsv *.txt *.xlsx *.xls",
             "All files",  "*"),
@@ -303,8 +354,8 @@ load_sensanalyser_data <- function(
       ),
       error = function(e) NULL
     )
-    if (!is.null(selected) && length(selected) > 0 && nzchar(selected[1])) {
-      return(selected[1])
+    if (!is.null(selected) && length(selected) > 0 && all(nzchar(selected))) {
+      return(selected)
     }
   }
 
@@ -312,8 +363,9 @@ load_sensanalyser_data <- function(
   if (.can_use_gui_dialog() && requireNamespace("svDialogs", quietly = TRUE)) {
     selected <- tryCatch(
       svDialogs::dlg_open(
-        title   = "Select Sensory Data File",
-        filters = matrix(
+        title    = "Select Sensory Data File",
+        multiple = multiple,
+        filters  = matrix(
           c("Data files", "*.csv;*.tsv;*.txt;*.xlsx;*.xls",
             "CSV files",  "*.csv",
             "Excel files","*.xlsx;*.xls",
@@ -323,13 +375,13 @@ load_sensanalyser_data <- function(
       )$res,
       error = function(e) NULL
     )
-    if (!is.null(selected) && length(selected) > 0 && nzchar(selected)) {
+    if (!is.null(selected) && length(selected) > 0 && all(nzchar(selected))) {
       return(selected)
     }
   }
 
   # 6. Base R file.choose() — only reliable in truly interactive sessions
-  if (interactive()) {
+  if (!multiple && interactive()) {
     selected <- tryCatch(file.choose(), error = function(e) NULL)
     if (!is.null(selected) && nzchar(selected)) return(selected)
   }
@@ -341,19 +393,31 @@ load_sensanalyser_data <- function(
 #' Native macOS file picker helper using AppleScript
 #'
 #' @keywords internal
-.choose_file_macos <- function() {
-  script <- 'POSIX path of (choose file with prompt "Select Sensory Data File")'
+.choose_file_macos <- function(multiple = FALSE) {
+  if (multiple) {
+    script <- '
+    set fileList to choose file with prompt "Select Sensory Data File(s)" multiple selections allowed true
+    set posixPaths to {}
+    repeat with aFile in fileList
+      set end of posixPaths to POSIX path of aFile
+    end repeat
+    set AppleScript\'s text item delimiters to "\n"
+    return posixPaths as string
+    '
+  } else {
+    script <- 'POSIX path of (choose file with prompt "Select Sensory Data File")'
+  }
   tryCatch({
     res <- system2(
       "osascript",
-      args = c("-e", shQuote(script)),
+      args = c("-e", script),
       stdout = TRUE,
       stderr = FALSE
     )
     if (length(res) > 0 && nzchar(res[1])) {
-      path <- trimws(res[1])
-      if (file.exists(path)) {
-        return(path)
+      paths <- trimws(res)
+      if (all(file.exists(paths))) {
+        return(paths)
       }
     }
     NULL
@@ -364,7 +428,7 @@ load_sensanalyser_data <- function(
 #'
 #' @keywords internal
 .readline_path_prompt <- function() {
-  cat("\nEnter the full path to your data file:\n> ")
+  cat("\nEnter the full path to your data file (separate multiple files with a semicolon ';'):\n> ")
   path <- readline()
   path <- trimws(path)
 
@@ -372,9 +436,10 @@ load_sensanalyser_data <- function(
     return(NULL)
   }
 
-  # Remove surrounding quotes if present
-  path <- gsub('^["\']|["\']$', "", path)
-  path
+  paths <- strsplit(path, ";")[[1]]
+  paths <- trimws(paths)
+  paths <- gsub('^["\']|["\']$', "", paths)
+  paths
 }
 
 #' Detect whether this R session is running inside a supported GUI IDE
@@ -420,12 +485,22 @@ load_sensanalyser_data <- function(
 #' Creates the file if it does not exist.
 #'
 #' @keywords internal
-.log_data_load <- function(path, data) {
-  log_path <- here::here("outputs", "logs", "data_load_log.csv")
+.log_data_load <- function(path, data, config = NULL) {
+  if (!is.null(config) && !is.null(config$paths$logs_root)) {
+    log_dir <- config$paths$logs_root
+  } else {
+    log_dir <- here::here("outputs", "logs")
+  }
+  
+  if (!dir.exists(log_dir)) {
+    dir.create(log_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  
+  log_path <- file.path(log_dir, "data_load_log.csv")
 
   record <- data.frame(
     timestamp    = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-    file_path    = path,
+    file_path    = paste(path, collapse = "; "),
     n_rows       = nrow(data),
     n_cols       = ncol(data),
     r_version    = paste0(R.version$major, ".", R.version$minor),

@@ -396,11 +396,16 @@ run_phase8 <- function(data, selections, config, posthoc_result = NULL) {
   cli::cli_h2("Phase 8: Figures, PCA, MFA")
 
   figure_result <- run_figure_phase(data, selections, config, posthoc_result = posthoc_result)
-  pca_result    <- run_sensory_pca(data, selections, config)
+  # HCPC runs before PCA so cluster memberships can be used to colour the scores plot.
+  hcpc_result   <- run_sensory_hcpc(data, selections, config)
+  pca_result    <- run_sensory_pca(data, selections, config,
+                                   posthoc_result = posthoc_result,
+                                   hcpc_result    = hcpc_result)
   mfa_result    <- run_sensory_mfa(data, selections, config)
 
   list(
     figures = figure_result,
+    hcpc    = hcpc_result,
     pca     = pca_result,
     mfa     = mfa_result
   )

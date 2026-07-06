@@ -1,0 +1,21 @@
+# factor_splits.yaml
+# Sensanalyser Product+Factor Split Decisions
+#
+# Some raw product names encode an extra factor using "+" as a separator
+# (e.g. "ProductA+High"). During cleaning, Sensanalyser asks once per raw
+# name whether to split it out. Each distinct accepted factor value becomes
+# its own Yes/No column (named after the factor, e.g. `high`), and the
+# answer is recorded here so it is never asked again.
+#
+# This file is written automatically — you normally don't need to edit it
+# by hand, but you can correct an entry if you change your mind:
+#
+# product:
+#   "ProductA+High":
+#     split: true
+#     product: "ProductA"     # product name after the split
+#     factor: "High"          # becomes a Yes/No column named `high`
+#   "ProductA+Batch1+Line2":
+#     split: false
+#
+product: {}

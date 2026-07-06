@@ -5,6 +5,7 @@
 # display labels you want in tables and figures.
 #
 # Structure:
+#   aliases:     factor_name -> "raw name" -> "canonical name"  (applied at clean time)
 #   variables:   column_name -> "Display Label"
 #   levels:      factor_name -> level_value -> "Display Label"
 #   outcomes:    dv_column_name -> "Display Label"
@@ -25,7 +26,20 @@ variables:
   treatment:   "Treatment"
   formulation: "Formulation"
 
-# 2. FACTOR LEVELS
+  # Columns split out of "product+factor" names (e.g. "ProductA+Powder 1.0%")
+  # get an auto-generated snake_case name like `powder_1_0_percent`. Add an
+  # entry here if you want a nicer display label for one, e.g.:
+  # powder_1_0_percent: "Powder 1.0%"
+
+# 2. PRODUCT ALIASES  (applied during data cleaning, before any analysis)
+# Use this when the same physical product appears under different names across
+# QDA sessions. The key is the raw name from the data; the value is the
+# canonical name you want to use throughout the analysis.
+aliases:
+  product:
+    # "Alternative name": "Canonical name"
+
+# 3. FACTOR LEVELS
 # Map coded values (numbers or abbreviations) to descriptive labels.
 levels:
   product:

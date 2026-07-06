@@ -156,6 +156,39 @@ select_analysis_variables <- function(data, config) {
   model_type <- if (!is.null(analysis_cfg$model_type) && nzchar(analysis_cfg$model_type))
     analysis_cfg$model_type else "one_way_anova"
 
+  # If any "product+factor" names were split during cleaning, the resulting
+  # Yes/No columns (named after each factor value) exist in `data` but
+  # predate any hardcoded factor list in project_config.R, so they would
+  # otherwise never be offered. Ask about each one here, before roles are
+  # resolved, for every role where it's missing.
+  split_cols <- tryCatch({
+    dict_dir <- if (!is.null(config$paths$renaming_dictionary)) {
+      dirname(config$paths$renaming_dictionary)
+    } else NULL
+    if (!is.null(dict_dir)) intersect(.list_factor_split_columns(dict_dir), names(data)) else character(0)
+  }, error = function(e) character(0))
+
+  if (interactive_mode && length(split_cols) > 0) {
+    for (role in c("factors", "repeated_measures_factors")) {
+      current <- analysis_cfg[[role]]
+      is_hardcoded <- !is.null(current) && length(current) > 0 && !identical(current, "auto")
+      if (!is_hardcoded) next
+
+      for (col in setdiff(split_cols, current)) {
+        add_it <- utils::askYesNo(
+          sprintf(
+            "'%s' is a Yes/No factor split from product names. Add it to '%s' (currently: %s)?",
+            col, role, paste(current, collapse = ", ")
+          ),
+          default = TRUE
+        )
+        if (isTRUE(add_it)) {
+          analysis_cfg[[role]] <- union(analysis_cfg[[role]], col)
+        }
+      }
+    }
+  }
+
   # Slots that must be selected for this specific model
   required_slots <- .required_variable_slots(model_type)
 
@@ -475,18 +508,20 @@ select_analysis_variables <- function(data, config) {
 
   label <- .get_slot_description(role, model_type)
 
-  # Check if we can use GUI
-  use_gui <- !identical(Sys.getenv("RSTUDIO"), "") ||
-             !identical(Sys.getenv("POSITRON"), "") ||
-             interactive()
+  # Use GUI only for short lists in an interactive session — for large lists the
+  # console grid is faster and supports range input which the OS dialog cannot.
+  is_interactive_session <- !identical(Sys.getenv("RSTUDIO"), "") ||
+                            !identical(Sys.getenv("POSITRON"), "") ||
+                            interactive()
+  use_gui <- is_interactive_session && length(cols) <= 20
 
   while (TRUE) {
     cat("\n")
     cli::cli_rule(paste("Select:", role))
     cat(label, "\n")
-    if (multi) cat("(Multiple selections: comma-separated numbers or a range, e.g. '3-15')\n")
+    if (multi) cat("(Multiple selections: comma-separated numbers, ranges, or mixed — e.g. '1,3', '5-20', '1,5-20,25')\n")
 
-    # 1. Try GUI picker first
+    # 1. GUI picker for short lists
     if (use_gui && requireNamespace("svDialogs", quietly = TRUE)) {
       res <- tryCatch({
         svDialogs::dlg_list(
@@ -497,7 +532,6 @@ select_analysis_variables <- function(data, config) {
       }, error = function(e) NULL)
 
       if (!is.null(res)) {
-        # Check if the user selected something
         if (length(res) == 0 || all(!nzchar(res))) {
           if (required) {
             abort_choice <- utils::askYesNo(
@@ -507,7 +541,7 @@ select_analysis_variables <- function(data, config) {
             if (isTRUE(abort_choice) || is.na(abort_choice)) {
               cli::cli_abort("Pipeline execution aborted by user.")
             }
-            next # Loop back to prompt again
+            next
           } else {
             return(NULL)
           }
@@ -516,14 +550,14 @@ select_analysis_variables <- function(data, config) {
       }
     }
 
-    # 2. Console fallback: numbered list in columns
+    # 2. Console: numbered grid + range/mixed input
     cat("\nAvailable columns:\n")
     .print_cols_grid(cols, width = 3, col_width = 32)
 
     cat("\n")
     cli::cli_rule(paste("Prompt:", role))
     cat(label, "\n")
-    if (multi) cat("-> Multiple selections allowed (comma-separated or range, e.g. '1,3,5' or '5-20')\n")
+    if (multi) cat("-> Enter numbers, ranges, or mixed (e.g. '1,3,5', '5-20', '1,5-20,25')\n")
     else cat("-> Single selection only\n")
 
     cat("\nEnter column number(s) or press Enter to skip:\n> ")
@@ -538,34 +572,23 @@ select_analysis_variables <- function(data, config) {
         if (isTRUE(abort_choice) || is.na(abort_choice)) {
           cli::cli_abort("Pipeline execution aborted by user.")
         }
-        next # Loop back to prompt again
+        next
       } else {
         return(NULL)
       }
     }
 
-    # Parse range or list of numbers
-    indices <- NULL
-    if (grepl("^\\d+[:\\-]\\d+$", input)) {
-      parts   <- as.integer(strsplit(input, "[:\\-]")[[1]])
-      indices <- seq(parts[1], parts[2])
-    } else {
-      # Split by comma or space
-      parts <- strsplit(input, "[,\\s]+")[[1]]
-      parsed <- tryCatch(
-        as.integer(parts),
-        warning = function(w) NULL
+    indices <- .parse_selection_input(input, length(cols))
+    if (is.null(indices)) {
+      cli::cli_alert_danger(
+        "Invalid input '{input}'. Use numbers, ranges (5-20), or mixed (1,5-20,25)."
       )
-      if (is.null(parsed) || any(is.na(parsed))) {
-        cli::cli_alert_danger("Invalid input. Please enter numbers, comma-separated values, or a range (e.g. 5-20).")
-        next
-      }
-      indices <- parsed
+      next
     }
 
-    invalid <- indices[indices < 1 | indices > length(cols) | is.na(indices)]
+    invalid <- indices[indices < 1 | indices > length(cols)]
     if (length(invalid) > 0) {
-      cli::cli_alert_danger("Invalid column number{?s}: {paste(invalid, collapse = ', ')}")
+      cli::cli_alert_danger("Out-of-range number{?s}: {paste(invalid, collapse = ', ')} (max {length(cols)})")
       next
     }
 
@@ -861,6 +884,36 @@ validate_variable_selections <- function(data, selections) {
   }
   
   cols[!exclude_mask]
+}
+
+#' Parse a selection input string into a vector of integer indices
+#'
+#' Supports individual numbers, ranges, and any mix:
+#'   "5"          -> 5
+#'   "5-20"       -> 5,6,...,20
+#'   "1,3,5-10"   -> 1,3,5,6,7,8,9,10
+#'
+#' Returns NULL if any token is not a valid number or range.
+#'
+#' @keywords internal
+.parse_selection_input <- function(input, max_idx) {
+  tokens  <- strsplit(trimws(input), "[,\\s]+")[[1]]
+  tokens  <- tokens[nzchar(tokens)]
+  indices <- integer(0)
+
+  for (tok in tokens) {
+    if (grepl("^\\d+[:\\-]\\d+$", tok)) {
+      parts <- as.integer(strsplit(tok, "[:\\-]")[[1]])
+      if (parts[1] > parts[2]) return(NULL)
+      indices <- c(indices, seq(parts[1], parts[2]))
+    } else {
+      n <- suppressWarnings(as.integer(tok))
+      if (is.na(n)) return(NULL)
+      indices <- c(indices, n)
+    }
+  }
+
+  unique(sort(indices))
 }
 
 #' Print column list in a clean multi-column grid

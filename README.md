@@ -60,7 +60,9 @@ Press **Run All** (Ctrl+Shift+Enter) to execute the pipeline.
 
 ## Phase Breakdown
 
-Sensanalyser executes a sequential, deterministic pipeline. The major phases currently implemented are:
+Sensanalyser executes a sequential, deterministic pipeline. For a detailed breakdown of the models, mathematical formulas, and specific R packages powering these analytical phases, please refer to the **[Statistical Methods Documentation](STATISTICAL_METHODS.md)**.
+
+The major phases currently implemented are:
 
 ### Phase 2: Data Import & Variable Selection
 Data import supports `.csv`, `.tsv`, `.txt`, `.xlsx`, and `.xls` files. Multiple files with the same structure are automatically combined using `dplyr::bind_rows`, keeping a trace of their origin. Variables are validated and assigned appropriate types based on the project configuration.
@@ -81,8 +83,8 @@ Supported model routes include:
 ### Phase 6: Post-hoc Analyses
 Post-hoc comparisons (e.g., Tukey, Bonferroni) are generated based on significant terms from the models. Interaction terms (like `product|replica`) are fully supported. Outputs include pairwise test tables and compact significance letters ready for reporting.
 
-### Phase 8 & 9: (Under ongoing refinement)
-Phase 8 covers multivariate outputs (PCA, HCPC, MFA) and figure generation. Phase 9 binds all outputs into a structured Quarto manuscript report within your project's `reports/` folder.
+### Phase 8 & 9: Multivariate Analysis and Reporting
+Phase 8 covers multivariate outputs (PCA, HCPC, MFA) and figure generation. **Hierarchical Clustering (HCPC)** now fully supports *interactive mode*, where you can click directly on the generated dendrogram to slice your product clusters. Phase 9 binds all outputs into a structured Quarto manuscript report within your project's `reports/` folder.
 
 ---
 

@@ -79,6 +79,14 @@ sensanalyser_get_package_list <- function() {
       "viridis",        # Colorblind-friendly palettes
       "RColorBrewer",   # Brewer color palettes (spider plot)
       "scales"          # Alpha/color scale utilities (spider plot)
+    ),
+
+    # Optional: enhance interactive file/variable pickers but are not required.
+    # The code checks requireNamespace() before using these, so they fail
+    # gracefully when absent (falls back to console-based prompts).
+    optional = c(
+      "rstudioapi",     # File picker inside RStudio / Positron
+      "svDialogs"       # Native OS dialog boxes for file and list selection
     )
   )
 }
@@ -87,6 +95,10 @@ sensanalyser_get_package_list <- function() {
 #'
 #' @description
 #' Flattens the package list into a single vector for convenient mass installation.
+#' The `optional` category is excluded by default; pass `include_optional = TRUE`
+#' to include it.
+#'
+#' @param include_optional Logical. Include the optional GUI packages?
 #'
 #' @return
 #' Character vector of package names
@@ -97,9 +109,25 @@ sensanalyser_get_package_list <- function() {
 #' }
 #'
 #' @export
-sensanalyser_get_all_packages <- function() {
+sensanalyser_get_all_packages <- function(include_optional = FALSE) {
   pkg_list <- sensanalyser_get_package_list()
+  if (!include_optional) {
+    pkg_list[["optional"]] <- NULL
+  }
   unique(unlist(pkg_list, use.names = FALSE))
+}
+
+#' Get Optional Packages as a Single Vector
+#'
+#' @description
+#' Returns only the optional (GUI-enhancement) packages.
+#'
+#' @return
+#' Character vector of optional package names
+#'
+#' @export
+sensanalyser_get_optional_packages <- function() {
+  sensanalyser_get_package_list()[["optional"]]
 }
 
 #' Get Packages by Category

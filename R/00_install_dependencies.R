@@ -5,6 +5,9 @@
 #' package list is defined in `R/functions/package_list.R`, which is the single
 #' source of truth for dependency names and categories.
 #'
+#' Uses only base R output (message/cat) so it runs even before any packages
+#' are installed.
+#'
 #' @param categories Character vector with dependency categories to check. Use
 #'   `"all"` to install every category.
 #' @param ask_user Logical. If `TRUE`, ask before installing missing packages.
@@ -25,12 +28,10 @@ sensanalyser_install_dependencies <- function(
     ask_user = interactive(),
     repos = "https://cloud.r-project.org") {
 
-  source(here::here("R", "functions", "package_list.R"))
-
-  package_list <- sensanalyser_get_package_list()
+  source(file.path("R", "functions", "package_list.R"))
 
   if (identical(categories, "all")) {
-    packages_to_check <- sensanalyser_get_all_packages()
+    packages_to_check <- sensanalyser_get_all_packages(include_optional = TRUE)
   } else {
     packages_to_check <- unique(unlist(
       lapply(categories, sensanalyser_get_packages_by_category),
@@ -38,8 +39,8 @@ sensanalyser_install_dependencies <- function(
     ))
   }
 
-  cli::cli_h1("Sensanalyser dependency installation")
-  cli::cli_inform("Checking {length(packages_to_check)} package{?s}.")
+  message("\n── Sensanalyser dependency installation ──────────────────────────────────")
+  message(sprintf("Checking %d package(s).", length(packages_to_check)))
 
   already_installed <- packages_to_check[vapply(
     packages_to_check,
@@ -51,11 +52,11 @@ sensanalyser_install_dependencies <- function(
   to_install <- setdiff(packages_to_check, already_installed)
 
   if (length(already_installed) > 0) {
-    cli::cli_alert_success("Already installed: {length(already_installed)}")
+    message(sprintf("v Already installed: %d", length(already_installed)))
   }
 
   if (length(to_install) == 0) {
-    cli::cli_alert_success("All selected dependencies are already installed.")
+    message("v All selected dependencies are already installed.")
     return(invisible(list(
       success = character(0),
       already_installed = already_installed,
@@ -64,13 +65,13 @@ sensanalyser_install_dependencies <- function(
     )))
   }
 
-  cli::cli_alert_warning("Missing packages: {length(to_install)}")
-  cli::cli_ul(to_install)
+  message(sprintf("! Missing packages: %d", length(to_install)))
+  for (pkg in to_install) message(sprintf("  - %s", pkg))
 
   if (ask_user) {
     response <- readline("Proceed with installation? (yes/no): ")
     if (tolower(substr(response, 1, 1)) != "y") {
-      cli::cli_alert_info("Installation cancelled by user.")
+      message("Installation cancelled by user.")
       return(invisible(list(
         success = character(0),
         already_installed = already_installed,
@@ -81,12 +82,12 @@ sensanalyser_install_dependencies <- function(
   }
 
   success <- character(0)
-  failed <- character(0)
+  failed  <- character(0)
 
-  cli::cli_h2("Installing missing packages")
+  message("\n── Installing missing packages ───────────────────────────────────────────")
 
   for (pkg in to_install) {
-    cli::cli_progress_step("Installing {.pkg {pkg}}")
+    message(sprintf("  Installing %s ...", pkg))
 
     tryCatch(
       {
@@ -95,12 +96,14 @@ sensanalyser_install_dependencies <- function(
         # Verify installation rather than assuming install.packages() succeeded.
         if (requireNamespace(pkg, quietly = TRUE)) {
           success <- c(success, pkg)
+          message(sprintf("  v %s installed.", pkg))
         } else {
           failed <- c(failed, pkg)
+          message(sprintf("  x %s: install.packages() ran but package not found afterwards.", pkg))
         }
       },
       error = function(e) {
-        cli::cli_alert_danger("Failed to install {.pkg {pkg}}: {e$message}")
+        message(sprintf("  x %s: %s", pkg, e$message))
         failed <<- c(failed, pkg)
       }
     )
@@ -114,14 +117,14 @@ sensanalyser_install_dependencies <- function(
   )]
   missing_after_install <- setdiff(packages_to_check, installed_now)
 
-  cli::cli_h2("Installation summary")
-  cli::cli_inform("Installed now: {length(success)}")
-  cli::cli_inform("Already installed before this run: {length(already_installed)}")
-  cli::cli_inform("Still missing: {length(missing_after_install)}")
+  message("\n── Installation summary ──────────────────────────────────────────────────")
+  message(sprintf("  Installed now:                  %d", length(success)))
+  message(sprintf("  Already installed before run:   %d", length(already_installed)))
+  message(sprintf("  Still missing:                  %d", length(missing_after_install)))
 
   if (length(missing_after_install) > 0) {
-    cli::cli_alert_warning("Packages still missing after installation attempt:")
-    cli::cli_ul(missing_after_install)
+    message("! Packages still missing after installation attempt:")
+    for (pkg in missing_after_install) message(sprintf("  - %s", pkg))
   }
 
   invisible(list(

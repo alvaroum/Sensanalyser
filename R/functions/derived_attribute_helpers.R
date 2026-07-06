@@ -154,6 +154,41 @@ save_derived_dataset <- function(data, path) {
 # PIPELINE ORCHESTRATOR
 # ---------------------------------------------------------------------------
 
+#' Scale selected numeric analysis variables
+#'
+#' @description
+#' Project-specific utility for rescaling data before analysis. This is useful
+#' when raw data were stored on a 0–100 line scale but should be interpreted as
+#' 0–10 by dividing by 10.
+#'
+#' @param data Data frame.
+#' @param variables Character vector of variables to scale.
+#' @param divisor Numeric divisor. If NULL, NA, or 1, data are returned unchanged.
+#' @return Data frame with selected numeric variables divided by `divisor`.
+#' @export
+scale_analysis_variables <- function(data, variables, divisor = NULL) {
+  if (is.null(divisor) || length(divisor) == 0 || is.na(divisor) || identical(as.numeric(divisor), 1)) {
+    return(data)
+  }
+
+  divisor <- as.numeric(divisor)
+  if (!is.finite(divisor) || divisor == 0) {
+    cli::cli_abort("derived_attribute_options$scale_divisor must be a finite non-zero number.")
+  }
+
+  vars <- intersect(variables %||% character(0), names(data))
+  vars <- vars[vapply(vars, function(x) is.numeric(data[[x]]), logical(1))]
+
+  if (length(vars) == 0) {
+    cli::cli_alert_warning("No numeric analysis variables available for scaling.")
+    return(data)
+  }
+
+  data[vars] <- lapply(data[vars], function(x) x / divisor)
+  cli::cli_alert_success("Scaled {length(vars)} analysis variable(s) by dividing by {divisor}.")
+  data
+}
+
 #' Run derived-attribute creation phase
 #'
 #' @param data Raw or working dataset.
@@ -168,6 +203,13 @@ run_derived_attribute_phase <- function(data, config) {
 
   digits <- config$derived_attribute_options$digits %||% NULL
   out <- create_derived_attributes(data, derived_config, digits = digits)
+
+  scale_divisor <- config$derived_attribute_options$scale_divisor %||% NULL
+  out <- scale_analysis_variables(
+    data = out,
+    variables = config$analysis$dependent_variables,
+    divisor = scale_divisor
+  )
 
   save_path <- config$paths$derived_data %||% NULL
   if (!is.null(save_path) && nzchar(save_path)) {
