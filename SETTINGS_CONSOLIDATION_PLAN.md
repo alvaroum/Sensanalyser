@@ -165,15 +165,26 @@ Two small functions, printed nicely with cli:
 
 ## 3. Implementation phases
 
-### Phase A — Config loader + schema (the core, ~2–3 days)
-1. Define the schema + defaults in one place (`R/functions/settings_helpers.R`):
-   `default_settings()`, `load_settings(project_dir)` (read YAML, deep-merge
-   over defaults, validate, normalise paths), `settings_summary()`.
-2. Internal adapter `settings_to_config()` mapping the new schema onto the
-   existing `final_config` structure `run_sensanalyser_pipeline()` already
-   consumes — **no engine module changes needed** in this phase.
-3. `sensanalyser_run_project()` prefers `settings.yaml` when present, else
-   falls back to `project_config.R` (backward compatible during migration).
+### Phase A — Config loader + schema (the core) — **DONE**
+1. ✅ Schema + defaults in one place (`R/functions/settings_helpers.R`):
+   `sensanalyser_default_settings()`, `sensanalyser_load_settings()` (read
+   YAML, deep-merge over defaults, validate), `sensanalyser_settings_summary()`.
+2. ✅ Adapter `sensanalyser_settings_to_config()` maps the schema onto the
+   `final_config` structure `run_sensanalyser_pipeline()` already consumes.
+3. ✅ `sensanalyser_run_project()` prefers `settings.yaml`, else falls back to
+   `project_config.R` (subset execution shared by both via
+   `.sensanalyser_run_config()`).
+4. ✅ Also landed: `templates/settings.yaml` (fully commented),
+   `run_sensanalyser.R` + `R/load_sensanalyser.R` (thin launcher, item 8),
+   `variables.exclude` support in `select_analysis_variables()`, and
+   `tests/test_settings_helpers.R` (18 checks).
+5. ✅ **Two-sources-of-truth closed**: `config$settings_driven` stops a stale
+   `analysis_config.yaml` from overriding settings.yaml in
+   `.phase2_data_import()`, and subsets no longer need the saved YAML.
+
+Known quirk found while verifying (pre-existing, unrelated to this work):
+`outputs.figures: false` only suppresses the figure module (spider plots);
+the PCA and HCPC modules always write their own figures.
 
 ### Phase B — Absorb the dictionary files (~1–2 days)
 4. `labels:` and `derived_attributes:` sections feed the existing loaders

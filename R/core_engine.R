@@ -263,8 +263,11 @@ run_sensanalyser_pipeline <- function(config) {
   needs_yaml_for_analysis <- is.null(config$analysis$dependent_variables) ||
                              identical(config$analysis$dependent_variables, "auto")
 
+  # settings.yaml is authoritative: never let a stale analysis_config.yaml
+  # silently override what the user wrote (the old two-sources-of-truth bug).
   if (!is.null(saved_config_path) && file.exists(saved_config_path) &&
       !isTRUE(config$toggles$interactive_setup) &&
+      !isTRUE(config$settings_driven) &&
       (needs_yaml_for_path || needs_yaml_for_analysis)) {
 
     cli::cli_alert_info("Loading saved analysis config from YAML.")
@@ -642,6 +645,7 @@ run_sensanalyser_pipeline <- function(config) {
 
   # Future helper files (sourced only if they exist yet)
   optional_helpers <- c(
+    "settings_helpers.R",
     "data_cleaning_helpers.R",
     "derived_attribute_helpers.R",
     "outlier_helpers.R",

@@ -1,0 +1,149 @@
+# ==========================================================================
+# SENSANALYSER PROJECT SETTINGS
+# ==========================================================================
+#
+# This is the ONLY file you need to edit for this project. Delete or comment
+# out anything you don't need: every setting shown here is already the
+# default, so an empty file runs a sensible analysis.
+#
+# Check what your project will do before running it:
+#   settings_summary("projects/<this project>")
+#
+# YAML rules: two spaces for indentation (never tabs), and `key: value`.
+# --------------------------------------------------------------------------
+
+project:
+  name: my_study            # defaults to the folder name
+
+
+# ─── 1. DATA ──────────────────────────────────────────────────────────────
+data:
+  # auto = every csv/tsv/xlsx file in this project's data/raw folder.
+  files: auto
+  # Or list them explicitly (paths relative to the project folder):
+  # files:
+  #   - data/raw/QDA session 1.xlsx
+  #   - data/raw/QDA session 2.xlsx
+
+
+# ─── 2. VARIABLES ─────────────────────────────────────────────────────────
+variables:
+  # Sensory attributes to analyse. auto = every numeric column that is not a
+  # design column. Or list them: [sweet, sour, bitter]
+  attributes: auto
+
+  # Attributes to leave out of the whole analysis (e.g. not measured in every
+  # session, or simply not of interest).
+  exclude: []
+
+  product: product          # column holding the product / sample name
+  panelist: user            # column identifying the assessor (or null)
+  extra_factors: []         # other design factors, e.g. [session, replicate]
+
+
+# ─── 3. MODEL ─────────────────────────────────────────────────────────────
+model:
+  # one_way_anova, two_way_anova, three_way_anova, one_way_repeated,
+  # two_way_repeated, two_way_mixed, three_way_repeated, linear_mixed_model
+  type: linear_mixed_model
+
+  random_effects: [assessor]   # for mixed models
+  repeated_measures: []        # for repeated-measures ANOVA
+  fixed_effects: null          # null = derived from the model type + factors
+
+  alpha: 0.05
+
+  run_anova: false             # classical ANOVA engine
+  run_mixed: true              # mixed-model engine
+
+  posthoc:
+    run: false
+    method: tukey              # tukey, bonferroni, lsd
+    focal_terms: null          # null = every significant effect
+
+
+# ─── 4. OUTLIERS ──────────────────────────────────────────────────────────
+outliers:
+  detect: true
+  apply_policy: true
+  # keep_all       - report only, never modify the data
+  # remove_extreme - remove only extreme outliers (recommended)
+  # remove_all     - remove every identified outlier
+  policy: remove_extreme
+  # set_na   - blank out the outlying score only
+  # drop_row - remove the whole observation
+  action: set_na
+  grouping_factors: null       # null = the design factors above
+
+
+# ─── 5. MULTIVARIATE ──────────────────────────────────────────────────────
+multivariate:
+  pca:
+    run: true
+    significant_only: false    # true = only attributes with a product effect
+  hcpc:
+    run: true
+    # auto  - Sensanalyser picks the number of clusters
+    # click - show the dendrogram and click where to cut it
+    # a number (>= 2) - force that many clusters
+    clusters: auto
+  mfa:
+    run: false
+
+
+# ─── 6. OUTPUTS ───────────────────────────────────────────────────────────
+outputs:
+  descriptives: true
+  tables: true
+  figures: true
+  report: false                # render the Quarto report
+  report_formats: [html, docx]
+
+  table:
+    digits: 1
+    mean_se: true              # format cells as "mean ± SE"
+    letters: true              # add post-hoc letters (needs posthoc.run)
+
+  figure:
+    width: 9
+    height: 6
+    dpi: 300
+    palette: Set1              # RColorBrewer palette for spider plots
+
+  spider:
+    top_n_attributes: null     # null = all attributes
+    significant_only: true
+    attributes: null           # null = the analysed attributes
+    comparisons: {}            # each entry becomes one spider plot:
+    # comparisons:
+    #   control_vs_trial1: [Control, Trial 1]
+    #   all_products: null     # null = every product
+
+
+# ─── 7. DERIVED ATTRIBUTES ────────────────────────────────────────────────
+# Combine attributes into new ones (defined, for now, in
+# data/dictionary/derived_attributes.yaml).
+derived:
+  enabled: false
+  digits: null                 # null = no rounding
+  output_label: null           # subfolder for derived-attribute outputs
+
+
+# ─── 8. PRODUCT SUBSETS ───────────────────────────────────────────────────
+# Each entry re-runs the whole analysis on part of the products and writes to
+# its own outputs subfolder. Use include OR exclude, not both.
+subsets: {}
+# subsets:
+#   without_control:
+#     exclude: [Control]
+#   treated_only:
+#     include: [Treatment A, Treatment B]
+
+
+# ─── 9. ADVANCED ──────────────────────────────────────────────────────────
+advanced:
+  # true = ask which files/variables to use, with console prompts
+  interactive_setup: false
+  # true = print a data overview and stop before analysing
+  discover_variables: false
+  descriptive_grouping_factors: null

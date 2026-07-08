@@ -272,6 +272,24 @@ select_analysis_variables <- function(data, config) {
     cli::cli_alert_info("Auto-detected {length(dvs)} numeric dependent variable{?s}")
   }
 
+  # Attributes the user asked to leave out of the whole analysis
+  # (settings.yaml `variables.exclude`). Applied after auto-detection so it
+  # also works when the attribute list is discovered rather than listed.
+  excluded <- analysis_cfg$exclude_attributes
+  if (!is.null(excluded) && length(excluded) > 0) {
+    dropped <- intersect(dvs, excluded)
+    dvs <- setdiff(dvs, excluded)
+    if (length(dropped) > 0) {
+      cli::cli_alert_info("Excluded {length(dropped)} attribute{?s} on request: {paste(dropped, collapse = ', ')}")
+    }
+    unknown <- setdiff(excluded, dropped)
+    if (length(unknown) > 0) {
+      cli::cli_alert_warning(
+        "These excluded attribute{?s} were not found in the data: {paste(unknown, collapse = ', ')}"
+      )
+    }
+  }
+
   # 2. Fixed factors --------------------------------------------------------
   factors <- resolve(analysis_cfg$factors, "factors", data,
                      multi = TRUE, is_required = TRUE)

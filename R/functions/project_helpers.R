@@ -119,18 +119,48 @@ sensanalyser_validate_project <- function(project_root) {
 }
 
 #' Run a project with global toggles
+#'
+#' Configuration comes from the project's `settings.yaml` (the consolidated
+#' file every user edits). Projects still carrying the legacy
+#' `project_config.R` keep working: that path is used when no settings.yaml
+#' exists, and `global_toggles` only apply to it.
+#'
 #' @export
 sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
   project_root <- sensanalyser_resolve_project_root(project_dir)
   sensanalyser_validate_project(project_root)
-  
-  config_file <- file.path(project_root, "project_config.R")
-  if (!file.exists(config_file)) {
-    cli::cli_abort("No project_config.R found in {.path {project_root}}.")
+
+  settings_file <- sensanalyser_settings_path(project_root)
+  config_file   <- file.path(project_root, "project_config.R")
+
+  if (file.exists(settings_file)) {
+    if (file.exists(config_file)) {
+      cli::cli_alert_warning(
+        "Both {.path settings.yaml} and {.path project_config.R} exist - using settings.yaml."
+      )
+    }
+    if (length(global_toggles) > 0) {
+      cli::cli_alert_info(
+        "Ignoring global_toggles: every setting for this project lives in {.path settings.yaml}."
+      )
+    }
+    settings <- sensanalyser_load_settings(project_root)
+    sensanalyser_settings_summary(settings)
+    return(invisible(.sensanalyser_run_settings(settings)))
   }
-  
+
+  if (!file.exists(config_file)) {
+    cli::cli_abort(c(
+      "No {.path settings.yaml} found in {.path {project_root}}.",
+      "i" = "Create one from {.path templates/settings.yaml}, or migrate an old project_config.R."
+    ))
+  }
+
+  cli::cli_alert_info(
+    "Using the legacy {.path project_config.R}. Consider consolidating into {.path settings.yaml}."
+  )
   project_config <- source(config_file)$value
-  
+
   # Build a combined config object.
   # This merges the global defaults from the engine, global toggles from 
   # master_mission_control, and the specific project settings.
@@ -180,18 +210,44 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
   
   # Tell core engine where the root is
   final_config$project_root <- project_root
-  
+
+  final_config$product_subsets <- project_config$product_subsets
+  .sensanalyser_run_config(final_config)
+}
+
+#' Run a project described by a consolidated settings.yaml
+#'
+#' @param settings A list from [sensanalyser_load_settings()].
+#' @keywords internal
+.sensanalyser_run_settings <- function(settings) {
+  .sensanalyser_run_config(sensanalyser_settings_to_config(settings))
+}
+
+#' Run the main pipeline followed by any product subsets
+#'
+#' Shared by the settings.yaml and the legacy project_config.R paths, so both
+#' produce identical outputs.
+#'
+#' @param final_config Fully resolved engine config, optionally carrying a
+#'   `product_subsets` element.
+#' @keywords internal
+.sensanalyser_run_config <- function(final_config) {
+  subsets <- final_config$product_subsets
+  final_config$product_subsets <- NULL
+
   run_sensanalyser_pipeline(final_config)
 
   # ── PRODUCT SUBSET ANALYSES ──────────────────────────────────────────────
-  # Each named entry in product_subsets reruns the full pipeline on a filtered
-  # dataset and writes its outputs to a dedicated subfolder, so subset results
-  # never overwrite the main analysis outputs.
-  subsets <- project_config$product_subsets
+  # Each named entry reruns the full pipeline on a filtered dataset and writes
+  # its outputs to a dedicated subfolder, so subset results never overwrite
+  # the main analysis outputs.
   if (!is.null(subsets) && length(subsets) > 0) {
 
+    # A settings.yaml run already carries every selection, so it needs no
+    # saved YAML to reproduce them for the subsets.
     saved_cfg_path <- final_config$paths$analysis_config
-    if (is.null(saved_cfg_path) || !file.exists(saved_cfg_path)) {
+    settings_driven <- isTRUE(final_config$settings_driven)
+    if (!settings_driven && (is.null(saved_cfg_path) || !file.exists(saved_cfg_path))) {
       cli::cli_alert_warning(
         "Product subsets skipped: no analysis_config.yaml found at {saved_cfg_path}.",
         "Run the main analysis first so variable selections are saved."
@@ -206,11 +262,13 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
         subset_config <- final_config
 
         # Non-interactive: no prompts, no YAML write.
-        # Setting dependent_variables to NULL triggers the YAML-load block in
-        # core_engine so this subset uses the same variable selections as the
-        # main run rather than re-running auto-detection.
-        subset_config$toggles$interactive_setup      <- FALSE
-        subset_config$analysis$dependent_variables   <- NULL
+        subset_config$toggles$interactive_setup <- FALSE
+        if (!settings_driven) {
+          # Setting dependent_variables to NULL triggers the YAML-load block in
+          # core_engine so this subset uses the same variable selections as the
+          # main run rather than re-running auto-detection.
+          subset_config$analysis$dependent_variables <- NULL
+        }
 
         # Redirect all outputs to a dedicated subfolder.
         subset_config$paths$table_root       <- file.path(final_config$paths$table_root,       subset_name)
