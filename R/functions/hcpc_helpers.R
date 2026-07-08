@@ -249,9 +249,34 @@ run_sensory_hcpc <- function(data, selections, config) {
   height <- config$fig_options$height; if (is.null(height) || is.na(height)) height <- 6
   dpi <- config$fig_options$dpi; if (is.null(dpi) || is.na(dpi)) dpi <- 300
 
+  # The cluster tables above are always written; the figures are optional
+  # (settings.yaml: outputs.figures.hcpc).
+  save_figures <- sensanalyser_save_figures(config, "hcpc")
+
   # Dendrogram from PCA coordinates using Ward clustering, aligned with HCPC logic.
   coord <- as.data.frame(pca_fit$ind$coord)
   hc <- stats::hclust(stats::dist(coord), method = "ward.D2")
+
+  if (!save_figures) {
+    cli::cli_alert_info("HCPC figures skipped (outputs.figures.hcpc is false).")
+    cli::cli_alert_success("Saved: {cluster_path}")
+    cli::cli_alert_success("Saved: {profile_path}")
+    cli::cli_alert_success("Saved: {desc_path}")
+    return(list(
+      skipped = FALSE,
+      pca_object = pca_fit,
+      hcpc_object = hcpc_fit,
+      clusters = cluster_tbl,
+      cluster_profiles = cluster_profiles,
+      quanti_descriptors = desc_quanti,
+      file_paths = list(
+        clusters           = cluster_path,
+        cluster_profiles   = profile_path,
+        quanti_descriptors = desc_path,
+        pca_scores         = scores_path
+      )
+    ))
+  }
 
   # Highlight the selected cluster cut directly on the dendrogram.
   # hcpc_n_clusters holds the resolved choice at this point (fixed number

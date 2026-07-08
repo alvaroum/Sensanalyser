@@ -98,10 +98,33 @@
 #'   empty list if the file doesn't exist or has no entries.
 #' @keywords internal
 .read_factor_splits <- function(dict_dir) {
-  splits_path <- file.path(dict_dir, "factor_splits.yaml")
+  splits_path <- .dict_path(dict_dir, "factor_splits.yaml")
   splits <- if (file.exists(splits_path)) yaml::read_yaml(splits_path)[["product"]] else NULL
   if (is.null(splits)) splits <- list()
   splits
+}
+
+
+#' Resolve a dictionary file, preferring the pipeline-owned state copy
+#'
+#' Sensanalyser writes what it maintains (resolved labels, split decisions)
+#' into \code{data/dictionary/state/}. Legacy projects keep their files
+#' directly in \code{data/dictionary/}, which is used as the fallback.
+#'
+#' @param dict_dir Path to the project's \code{data/dictionary} folder.
+#' @param file_name e.g. \code{"factor_splits.yaml"}.
+#' @param for_writing When TRUE, always return the state path (creating the
+#'   folder), because Sensanalyser owns the file it is about to write.
+#' @return Path to the file (may not exist yet).
+#' @keywords internal
+.dict_path <- function(dict_dir, file_name, for_writing = FALSE) {
+  state_dir <- file.path(dict_dir, "state")
+  state_file <- file.path(state_dir, file_name)
+  if (for_writing) {
+    dir.create(state_dir, recursive = TRUE, showWarnings = FALSE)
+    return(state_file)
+  }
+  if (file.exists(state_file)) state_file else file.path(dict_dir, file_name)
 }
 
 
@@ -204,8 +227,8 @@
   }
 
   if (updated) {
-    dir.create(dict_dir, recursive = TRUE, showWarnings = FALSE)
-    yaml::write_yaml(list(product = splits), file.path(dict_dir, "factor_splits.yaml"))
+    yaml::write_yaml(list(product = splits),
+                     .dict_path(dict_dir, "factor_splits.yaml", for_writing = TRUE))
   }
 
   accepted <- Filter(function(d) isTRUE(d$split), splits)
@@ -325,9 +348,9 @@ sensanalyser_clean_raw_excel <- function(file_path) {
 
   # ── Step 7b: Apply product aliases from renaming dictionary ──────────────
   # Unifies names that differ across QDA sessions but refer to the same product.
-  # Aliases are defined in data/dictionary/renaming_dictionary.yaml under
-  # aliases.product and are applied before files are combined.
-  dict_path <- file.path(dict_dir, "renaming_dictionary.yaml")
+  # Aliases come from settings.yaml (labels.aliases), materialised into
+  # data/dictionary/state/, falling back to the legacy dictionary file.
+  dict_path <- .dict_path(dict_dir, "renaming_dictionary.yaml")
   if (file.exists(dict_path) && "product" %in% names(data)) {
     dict    <- yaml::read_yaml(dict_path)
     aliases <- dict[["aliases"]][["product"]]

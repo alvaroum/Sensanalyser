@@ -119,6 +119,124 @@ check("an explicit attribute list honours exclude",
 settings_yaml("data:", "  files: [data/raw/nope.csv]")
 check_error("a missing data file is reported", config(), "not found")
 
+# ── Figures, per analysis ─────────────────────────────────────────────────
+settings_yaml("")
+check("all figures are on by default",
+      identical(load()$outputs$figures,
+                list(spider = TRUE, pca = TRUE, hcpc = TRUE, mfa = TRUE)))
+
+settings_yaml("outputs:", "  figures: false")
+s <- load()
+check("`figures: false` switches every figure off",
+      all(!unlist(s$outputs$figures)),
+      isFALSE(sensanalyser_save_figures(sensanalyser_settings_to_config(s), "pca")))
+
+settings_yaml("outputs:", "  figures: true")
+check("`figures: true` switches every figure on",
+      all(unlist(load()$outputs$figures)))
+
+settings_yaml("outputs:", "  figures:", "    pca: false", "    mfa: false")
+s <- load(); cfg <- sensanalyser_settings_to_config(s)
+check("figures can be chosen per analysis",
+      isTRUE(s$outputs$figures$spider), isFALSE(s$outputs$figures$pca),
+      isTRUE(s$outputs$figures$hcpc),   isFALSE(s$outputs$figures$mfa),
+      isTRUE(cfg$toggles$create_figures),                 # spider module on
+      isTRUE(sensanalyser_save_figures(cfg, "hcpc")),
+      isFALSE(sensanalyser_save_figures(cfg, "pca")),
+      isFALSE(sensanalyser_save_figures(cfg, "mfa")))
+
+settings_yaml("outputs:", "  figures:", "    spider: false")
+check("spider figures off means create_figures is off",
+      isFALSE(sensanalyser_settings_to_config(load())$toggles$create_figures))
+
+settings_yaml("outputs:", "  figures:", "    pcaa: false")
+check_error("a typo'd figure kind is caught", load(), "did you mean 'pca'")
+
+check("legacy configs without figure_toggles still save figures",
+      isTRUE(sensanalyser_save_figures(list(), "pca")))
+
+# ── Labels and derived attributes are materialised into state/ ────────────
+settings_yaml(
+  "labels:",
+  "  variables:",
+  "    product: Product",
+  "  attributes:",
+  "    sweet_a: Sweetness (Aroma)",
+  "  aliases:",
+  "    product:",
+  "      bread_a: Bread A",
+  "derived_attributes:",
+  "  overall_fruity:",
+  "    label: Overall Fruity",
+  "    method: mean",
+  "    source_variables: [stone_fruits_a, tropical_a]"
+)
+cfg <- config()
+# The loader normalises the project root (on macOS /var -> /private/var).
+proj_norm <- normalizePath(proj)
+state_dir <- file.path(proj_norm, "data", "dictionary", "state")
+check("state/ holds the resolved dictionary and derived attributes",
+      identical(cfg$paths$renaming_dictionary,
+                file.path(state_dir, "renaming_dictionary.yaml")),
+      identical(cfg$paths$derived_attributes,
+                file.path(state_dir, "derived_attributes.yaml")),
+      file.exists(cfg$paths$renaming_dictionary),
+      file.exists(cfg$paths$derived_attributes))
+
+dict <- yaml::read_yaml(cfg$paths$renaming_dictionary)
+check("labels.attributes is written as the engine's outcomes",
+      identical(dict$outcomes$sweet_a, "Sweetness (Aroma)"),
+      identical(dict$variables$product, "Product"),
+      identical(dict$aliases$product$bread_a, "Bread A"))
+
+derived <- yaml::read_yaml(cfg$paths$derived_attributes)
+check("derived attribute definitions round-trip",
+      identical(derived$derived_attributes$overall_fruity$label, "Overall Fruity"),
+      identical(derived$derived_attributes$overall_fruity$source_variables,
+                c("stone_fruits_a", "tropical_a")))
+
+check_error("a derived attribute needs two sources",
+            { settings_yaml("derived_attributes:", "  x:", "    source_variables: [a]"); load() },
+            "at least two attributes")
+
+check_error("an unsupported derived method is caught",
+            { settings_yaml("derived_attributes:", "  x:", "    method: median",
+                            "    source_variables: [a, b]"); load() },
+            "only 'mean'")
+
+# Legacy dictionary files are still honoured when settings define no labels.
+writeLines(c("outcomes:", "  sweet_a: Legacy Label"),
+           file.path(proj, "data", "dictionary", "renaming_dictionary.yaml"))
+settings_yaml("")
+dict <- yaml::read_yaml(config()$paths$renaming_dictionary)
+check("a legacy renaming_dictionary.yaml is still used",
+      identical(dict$outcomes$sweet_a, "Legacy Label"))
+
+# Settings win over the legacy file.
+settings_yaml("labels:", "  attributes:", "    sweet_a: New Label")
+dict <- yaml::read_yaml(config()$paths$renaming_dictionary)
+check("settings.yaml labels override the legacy file",
+      identical(dict$outcomes$sweet_a, "New Label"))
+
+# factor_splits.yaml is pipeline-owned and moves into state/
+writeLines(c("product: {}"), file.path(proj, "data", "dictionary", "factor_splits.yaml"))
+invisible(config())
+check("factor_splits.yaml is relocated into state/",
+      file.exists(file.path(state_dir, "factor_splits.yaml")),
+      !file.exists(file.path(proj, "data", "dictionary", "factor_splits.yaml")))
+
+# Engine assets resolve from templates/ unless the project overrides them
+cfg <- config()
+check("model presets and report template come from templates/",
+      grepl("templates", cfg$paths$model_presets, fixed = TRUE),
+      grepl("templates", cfg$paths$report_template, fixed = TRUE))
+
+dir.create(file.path(proj, "reports"), showWarnings = FALSE)
+writeLines("---", file.path(proj, "reports", "sensanalyser_results_report.qmd"))
+check("a project copy of the report template wins",
+      identical(config()$paths$report_template,
+                file.path(proj_norm, "reports", "sensanalyser_results_report.qmd")))
+
 unlink(file.path(proj, "data", "raw", "d.csv"))
 settings_yaml("")
 check_error("an empty data/raw folder is reported", config(), "No data files found")

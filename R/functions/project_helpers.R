@@ -38,25 +38,18 @@ sensanalyser_create_project <- function(project_dir, project_id = NULL, overwrit
     dir.create(file.path(project_dir, f), recursive = TRUE, showWarnings = FALSE)
   }
   
-  # Copy templates if they exist
+  # A new project gets exactly one file to edit. Model presets and the report
+  # template are engine assets, resolved from templates/ at run time; copy one
+  # into the project only if you want to customise it.
   template_dir <- here::here("templates")
-  if (dir.exists(template_dir)) {
-    # We want to copy contents to their respective places
-    if (file.exists(file.path(template_dir, "project_config.R"))) {
-      file.copy(file.path(template_dir, "project_config.R"), file.path(project_dir, "project_config.R"))
-    }
-    
-    if (dir.exists(file.path(template_dir, "data/dictionary"))) {
-      dict_files <- list.files(file.path(template_dir, "data/dictionary"), full.names = TRUE)
-      file.copy(dict_files, file.path(project_dir, "data/dictionary"))
-    }
-    
-    if (dir.exists(file.path(template_dir, "reports"))) {
-      report_files <- list.files(file.path(template_dir, "reports"), full.names = TRUE)
-      file.copy(report_files, file.path(project_dir, "reports"))
-    }
+  if (file.exists(file.path(template_dir, "settings.yaml"))) {
+    settings_dest <- file.path(project_dir, "settings.yaml")
+    file.copy(file.path(template_dir, "settings.yaml"), settings_dest)
+    lines <- readLines(settings_dest, warn = FALSE)
+    lines <- sub("^(  name: )my_study", paste0("\\1", basename(project_dir)), lines)
+    writeLines(lines, settings_dest)
   }
-  
+
   # Write manifest
   manifest <- list(
     project_id = ifelse(is.null(project_id), basename(project_dir), project_id),
@@ -68,9 +61,9 @@ sensanalyser_create_project <- function(project_dir, project_id = NULL, overwrit
   cli::cli_alert_success("Project created successfully at {.path {project_dir}}")
   cli::cli_h2("Next Steps:")
   cli::cli_ul(c(
-    "Place your raw data files inside {.path {file.path(project_dir, 'data/raw')}}",
-    "Open {.path {file.path(project_dir, 'project_config.R')}} to configure your analysis.",
-    "Add {.val {project_dir}} to the {.var active_projects} list in {.path master_mission_control.R}."
+    "Place your data files inside {.path {file.path(project_dir, 'data/raw')}}",
+    "Open {.path {file.path(project_dir, 'settings.yaml')}} - the only file you edit.",
+    "Run {.code run_project('{project_dir}')} (or {.code settings_summary('{project_dir}')} first)."
   ))
   
   return(invisible(TRUE))

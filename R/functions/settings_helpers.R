@@ -83,7 +83,15 @@ sensanalyser_default_settings <- function() {
     outputs = list(
       descriptives   = TRUE,
       tables         = TRUE,
-      figures        = TRUE,
+      # Which figures to save. `figures: true` / `false` switches them all;
+      # a map switches them per analysis. The analyses still run (their
+      # tables are written) - only the image files are affected.
+      figures = list(
+        spider = TRUE,
+        pca    = TRUE,
+        hcpc   = TRUE,
+        mfa    = TRUE
+      ),
       report         = FALSE,
       report_formats = c("html", "docx"),
       table  = list(digits = 1, mean_se = TRUE, letters = TRUE),
@@ -102,6 +110,17 @@ sensanalyser_default_settings <- function() {
       output_label = NULL
     ),
 
+    # Display labels (absorbs data/dictionary/renaming_dictionary.yaml)
+    labels = list(
+      aliases    = list(),             # factor -> raw name -> canonical name
+      variables  = list(),             # column -> heading
+      levels     = list(),             # factor -> level -> label
+      attributes = list()              # attribute -> label
+    ),
+
+    # Derived attribute definitions (absorbs derived_attributes.yaml)
+    derived_attributes = list(),
+
     subsets = list(),                  # free-form: name -> include/exclude
 
     advanced = list(
@@ -112,14 +131,17 @@ sensanalyser_default_settings <- function() {
   )
 }
 
-# Sections whose keys are user-invented and must not be key-checked.
+# Sections whose keys are user-invented (data, not schema) and must not be
+# key-checked: subset names, spider comparison names, column and attribute
+# names in the label maps, derived attribute names.
 .sens_freeform_paths <- function() {
   c("subsets", "outputs.spider.comparisons",
-    "labels", "derived_attributes")   # reserved for Phase B
+    "labels.aliases", "labels.variables", "labels.levels", "labels.attributes",
+    "derived_attributes")
 }
 
-# Sections accepted but not yet wired into the pipeline (Phase B).
-.sens_reserved_sections <- function() c("labels", "derived_attributes")
+# Names of the figures that can be switched on or off individually.
+.sens_figure_kinds <- function() c("spider", "pca", "hcpc", "mfa")
 
 .sens_enums <- function() {
   list(
@@ -159,6 +181,31 @@ sensanalyser_default_settings <- function() {
     }
   }
   default
+}
+
+#' Expand `outputs.figures` into one flag per figure kind
+#'
+#' Users may write `figures: true` / `figures: false` to switch every figure
+#' at once, or a map to choose per analysis. Internally it is always a
+#' complete named list of logicals.
+#'
+#' @keywords internal
+.sens_normalise_figures <- function(settings) {
+  kinds <- .sens_figure_kinds()
+  value <- settings$outputs$figures
+
+  if (is.logical(value) && length(value) == 1 && !is.na(value)) {
+    settings$outputs$figures <- stats::setNames(as.list(rep(value, length(kinds))), kinds)
+    return(settings)
+  }
+  if (is.list(value)) {
+    defaults <- sensanalyser_default_settings()$outputs$figures
+    for (k in kinds) {
+      if (is.null(value[[k]])) value[[k]] <- defaults[[k]]
+    }
+    settings$outputs$figures <- value[kinds]
+  }
+  settings
 }
 
 #' Suggest the closest known key for a typo
@@ -207,9 +254,12 @@ sensanalyser_validate_settings <- function(settings, user_settings = NULL) {
       }
     }
   }
-  known_user <- user_settings
-  if (!is.null(known_user)) {
-    known_user <- known_user[setdiff(names(known_user), .sens_reserved_sections())]
+  if (!is.null(user_settings)) {
+    known_user <- user_settings
+    # `figures: true|false` is a valid shorthand for the per-figure map.
+    if (!is.null(known_user$outputs) && is.logical(known_user$outputs$figures)) {
+      known_user$outputs$figures <- NULL
+    }
     check_keys(known_user, defaults)
   }
 
@@ -236,7 +286,8 @@ sensanalyser_validate_settings <- function(settings, user_settings = NULL) {
                 "outliers.detect", "outliers.apply_policy",
                 "multivariate.pca.run", "multivariate.pca.significant_only",
                 "multivariate.hcpc.run", "multivariate.mfa.run",
-                "outputs.descriptives", "outputs.tables", "outputs.figures",
+                "outputs.descriptives", "outputs.tables",
+                paste0("outputs.figures.", .sens_figure_kinds()),
                 "outputs.report", "derived.enabled",
                 "advanced.interactive_setup", "advanced.discover_variables")
   for (path in logicals) {
@@ -265,7 +316,23 @@ sensanalyser_validate_settings <- function(settings, user_settings = NULL) {
     ))
   }
 
-  # 4. Subsets --------------------------------------------------------------
+  # 4. Derived attributes ---------------------------------------------------
+  for (name in names(settings$derived_attributes)) {
+    def <- settings$derived_attributes[[name]]
+    if (!is.list(def) || length(def$source_variables) < 2) {
+      problems <- c(problems, sprintf(
+        "derived_attributes.%s needs a 'source_variables:' list of at least two attributes.", name
+      ))
+    }
+    method <- .sens_or(def$method, "mean")
+    if (!identical(method, "mean")) {
+      problems <- c(problems, sprintf(
+        "derived_attributes.%s: method '%s' is not supported (only 'mean').", name, method
+      ))
+    }
+  }
+
+  # 5. Subsets --------------------------------------------------------------
   for (name in names(settings$subsets)) {
     def <- settings$subsets[[name]]
     if (!is.list(def) || !any(c("include", "exclude") %in% names(def))) {
@@ -322,16 +389,8 @@ sensanalyser_load_settings <- function(project_dir) {
   if (is.null(user)) user <- list()
 
   settings <- .sens_merge_settings(sensanalyser_default_settings(), user)
+  settings <- .sens_normalise_figures(settings)
   sensanalyser_validate_settings(settings, user_settings = user)
-
-  reserved_used <- intersect(names(user), .sens_reserved_sections())
-  if (length(reserved_used) > 0) {
-    cli::cli_alert_info(paste0(
-      "settings.yaml section{?s} {.field {reserved_used}} {?is/are} not read yet ",
-      "(coming in the next phase); the matching file{?s} in data/dictionary/ ",
-      "{?is/are} still used."
-    ))
-  }
 
   settings$project$name <- .sens_or(settings$project$name, basename(normalizePath(project_dir)))
   settings$project_root <- normalizePath(project_dir)
@@ -373,6 +432,95 @@ sensanalyser_load_settings <- function(project_dir) {
 }
 
 # ---------------------------------------------------------------------------
+# MACHINE STATE: files the pipeline owns, never the user
+# ---------------------------------------------------------------------------
+
+#' Folder holding pipeline-owned files for a project
+#'
+#' The user edits `settings.yaml`; everything Sensanalyser generates or
+#' remembers lives here, so the two never get confused.
+#'
+#' @param project_root Project folder.
+#' @param create Create the folder if missing?
+#' @export
+sensanalyser_state_dir <- function(project_root, create = FALSE) {
+  path <- file.path(project_root, "data", "dictionary", "state")
+  if (create) dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  path
+}
+
+#' Locate an engine asset, letting a project override it
+#'
+#' Model presets and the report template are engine assets. They are read
+#' from `templates/` unless the project ships its own customised copy.
+#'
+#' @keywords internal
+.sens_engine_asset <- function(project_root, project_rel, template_rel) {
+  project_copy <- file.path(project_root, project_rel)
+  if (file.exists(project_copy)) return(project_copy)
+  template <- tryCatch(here::here(template_rel), error = function(e) template_rel)
+  if (file.exists(template)) template else project_copy
+}
+
+#' Write the resolved label dictionary and derived attributes into state/
+#'
+#' `settings.yaml` is the source of truth, but the analysis modules read a
+#' dictionary YAML by path. Rather than touching seventeen call sites, the
+#' resolved content is materialised into `data/dictionary/state/`, which the
+#' modules then read. Legacy `data/dictionary/*.yaml` files are still honoured
+#' for anything the settings file does not define, so projects that have not
+#' migrated keep working.
+#'
+#' @param settings A loaded settings list.
+#' @return Named list of paths (`renaming_dictionary`, `derived_attributes`).
+#' @keywords internal
+.sens_materialise_state <- function(settings) {
+  root <- settings$project_root
+  dict_dir <- file.path(root, "data", "dictionary")
+  state_dir <- sensanalyser_state_dir(root, create = TRUE)
+
+  # ── Labels ───────────────────────────────────────────────────────────────
+  legacy_dict_path <- file.path(dict_dir, "renaming_dictionary.yaml")
+  legacy <- if (file.exists(legacy_dict_path)) {
+    tryCatch(yaml::read_yaml(legacy_dict_path), error = function(e) list())
+  } else {
+    list()
+  }
+  if (is.null(legacy)) legacy <- list()
+
+  labels <- settings$labels
+  resolved <- list(
+    # `attributes:` reads better than the engine's internal `outcomes:`
+    aliases   = if (length(labels$aliases) > 0)    labels$aliases    else .sens_or(legacy$aliases, list()),
+    variables = if (length(labels$variables) > 0)  labels$variables  else .sens_or(legacy$variables, list()),
+    levels    = if (length(labels$levels) > 0)     labels$levels     else .sens_or(legacy$levels, list()),
+    outcomes  = if (length(labels$attributes) > 0) labels$attributes else .sens_or(legacy$outcomes, list())
+  )
+  dict_path <- file.path(state_dir, "renaming_dictionary.yaml")
+  yaml::write_yaml(resolved, dict_path)
+
+  # ── Derived attributes ───────────────────────────────────────────────────
+  legacy_derived_path <- file.path(dict_dir, "derived_attributes.yaml")
+  derived <- settings$derived_attributes
+  if (length(derived) == 0 && file.exists(legacy_derived_path)) {
+    legacy_derived <- tryCatch(yaml::read_yaml(legacy_derived_path), error = function(e) list())
+    derived <- .sens_or(legacy_derived$derived_attributes, list())
+  }
+  derived_path <- file.path(state_dir, "derived_attributes.yaml")
+  yaml::write_yaml(list(derived_attributes = derived), derived_path)
+
+  # ── Relocate pipeline-owned decisions ────────────────────────────────────
+  legacy_splits <- file.path(dict_dir, "factor_splits.yaml")
+  state_splits <- file.path(state_dir, "factor_splits.yaml")
+  if (file.exists(legacy_splits) && !file.exists(state_splits)) {
+    file.rename(legacy_splits, state_splits)
+    cli::cli_alert_info("Moved {.path factor_splits.yaml} into {.path data/dictionary/state/} (Sensanalyser maintains it).")
+  }
+
+  list(renaming_dictionary = dict_path, derived_attributes = derived_path)
+}
+
+# ---------------------------------------------------------------------------
 # ADAPTER: settings -> the config the engine already consumes
 # ---------------------------------------------------------------------------
 
@@ -407,19 +555,23 @@ sensanalyser_settings_to_config <- function(settings) {
   factors <- unique(c(settings$variables$product,
                       as.character(unlist(settings$variables$extra_factors))))
 
+  state <- .sens_materialise_state(settings)
+
   config <- list(
     paths = list(
       raw_data            = .sens_resolve_data_files(settings),
-      analysis_config     = file.path(root, "data/dictionary/analysis_config.yaml"),
-      renaming_dictionary = file.path(root, "data/dictionary/renaming_dictionary.yaml"),
-      model_presets       = file.path(root, "data/dictionary/model_presets.yaml"),
-      derived_attributes  = file.path(root, "data/dictionary/derived_attributes.yaml"),
+      analysis_config     = file.path(root, "data/dictionary/state/resolved_run.yaml"),
+      renaming_dictionary = state$renaming_dictionary,
+      derived_attributes  = state$derived_attributes,
+      model_presets       = .sens_engine_asset(root, "data/dictionary/model_presets.yaml",
+                                               "templates/data/dictionary/model_presets.yaml"),
+      report_template     = .sens_engine_asset(root, "reports/sensanalyser_results_report.qmd",
+                                               "templates/reports/sensanalyser_results_report.qmd"),
       derived_data        = file.path(root, "data/processed/derived_attribute_dataset.csv"),
       table_root          = file.path(root, "outputs/tables"),
       figure_root         = file.path(root, "outputs/figures"),
       diagnostics_root    = file.path(root, "outputs/diagnostics"),
-      logs_root           = file.path(root, "outputs/logs"),
-      report_template     = file.path(root, "reports/sensanalyser_results_report.qmd")
+      logs_root           = file.path(root, "outputs/logs")
     ),
 
     toggles = list(
@@ -435,10 +587,14 @@ sensanalyser_settings_to_config <- function(settings) {
       run_mfa                   = settings$multivariate$mfa$run,
       run_hcpc                  = settings$multivariate$hcpc$run,
       create_tables             = settings$outputs$tables,
-      create_figures            = settings$outputs$figures,
+      # The spider-plot module is the one gated by create_figures; PCA, HCPC
+      # and MFA check figure_toggles when saving their own images.
+      create_figures            = isTRUE(settings$outputs$figures$spider),
       render_quarto_report      = settings$outputs$report,
       create_derived_attributes = settings$derived$enabled
     ),
+
+    figure_toggles = settings$outputs$figures,
 
     analysis = list(
       dependent_variables          = attributes,
@@ -501,6 +657,22 @@ sensanalyser_settings_to_config <- function(settings) {
   }
 
   config
+}
+
+#' Should this analysis save its figures?
+#'
+#' Analyses always compute their tables; this only decides whether the image
+#' files are written. Legacy `project_config.R` runs carry no
+#' `figure_toggles`, so figures stay on for them.
+#'
+#' @param config The engine config list.
+#' @param kind One of "spider", "pca", "hcpc", "mfa".
+#' @return TRUE when the figures for `kind` should be saved.
+#' @export
+sensanalyser_save_figures <- function(config, kind) {
+  toggles <- config$figure_toggles
+  if (is.null(toggles) || is.null(toggles[[kind]])) return(TRUE)
+  isTRUE(toggles[[kind]])
 }
 
 # ---------------------------------------------------------------------------
@@ -580,9 +752,29 @@ sensanalyser_settings_summary <- function(project_dir) {
   cli::cli_h3("Outputs")
   cli::cli_ul()
   line("Tables", "outputs.tables")
-  line("Figures", "outputs.figures")
+  figs <- settings$outputs$figures
+  on_kinds <- names(figs)[vapply(figs, isTRUE, logical(1))]
+  off_kinds <- setdiff(names(figs), on_kinds)
+  figs_shown <- if (length(on_kinds) == 0) {
+    "none"
+  } else if (length(off_kinds) == 0) {
+    "all (spider, pca, hcpc, mfa)"
+  } else {
+    sprintf("%s (off: %s)", paste(on_kinds, collapse = ", "), paste(off_kinds, collapse = ", "))
+  }
+  if (length(off_kinds) > 0) {
+    cli::cli_li("Figures: {.strong {figs_shown}}")
+  } else {
+    cli::cli_li("Figures: {figs_shown}")
+  }
   line("Quarto report", "outputs.report")
   line("Derived attributes", "derived.enabled")
+  n_labels <- length(settings$labels$variables) + length(settings$labels$levels) +
+    length(settings$labels$attributes)
+  cli::cli_li("Display labels: {n_labels} defined{if (length(settings$labels$aliases) > 0) ' (+ product aliases)' else ''}")
+  if (length(settings$derived_attributes) > 0) {
+    cli::cli_li("Derived attribute definitions: {paste(names(settings$derived_attributes), collapse = ', ')}")
+  }
   cli::cli_li("Subsets: {if (length(settings$subsets) == 0) 'none' else paste(names(settings$subsets), collapse = ', ')}")
   cli::cli_end()
 

@@ -183,17 +183,31 @@ Two small functions, printed nicely with cli:
    `.phase2_data_import()`, and subsets no longer need the saved YAML.
 
 Known quirk found while verifying (pre-existing, unrelated to this work):
-`outputs.figures: false` only suppresses the figure module (spider plots);
-the PCA and HCPC modules always write their own figures.
+`outputs.figures: false` only suppressed the figure module (spider plots);
+the PCA and HCPC modules always wrote their own figures. **Fixed in Phase B**
+by the per-analysis figure toggles.
 
-### Phase B — Absorb the dictionary files (~1–2 days)
-4. `labels:` and `derived_attributes:` sections feed the existing loaders
-   (`load_renaming_dictionary()` gets a sibling that reads from settings).
-   Old YAMLs still honoured if the section is absent, with a deprecation
-   note in the run header.
-5. Move `factor_splits.yaml` to `state/`; stop copying `model_presets.yaml`
-   and the `.qmd` template into new projects (resolve from `templates/`,
-   project copy overrides).
+### Phase B — Absorb the dictionary files — **DONE**
+4. ✅ `labels:` (aliases/variables/levels/attributes) and
+   `derived_attributes:` live in settings.yaml. `.sens_materialise_state()`
+   resolves them into `data/dictionary/state/`, which the analysis modules
+   read by path — so no module had to change. Legacy
+   `renaming_dictionary.yaml` / `derived_attributes.yaml` are still honoured
+   when the settings sections are empty; settings win when both exist.
+5. ✅ `factor_splits.yaml` moves to `state/` on first run (`.dict_path()` in
+   `data_cleaning_helpers.R` reads state-first, falls back to the legacy
+   location). `model_presets.yaml` and the report `.qmd` are no longer copied
+   into new projects: `.sens_engine_asset()` resolves them from `templates/`,
+   and a project copy still wins if you want to customise one.
+6. ✅ `sensanalyser_create_project()` now writes exactly one file to edit
+   (`settings.yaml`, with the project name filled in).
+
+**Per-analysis figure control** (requested during Phase B): `outputs.figures`
+accepts `true` / `false` (all figures) or a map with `spider`, `pca`, `hcpc`,
+`mfa`. Analyses always compute and write their tables; only the image files
+are gated, via `sensanalyser_save_figures(config, kind)`. This also resolves
+the quirk noted under Phase A — `figures` is no longer a single flag that
+only really affected spider plots.
 
 ### Phase C — Migration + new-project flow (~1 day)
 6. `sensanalyser_migrate_project(dir)` — reads existing

@@ -193,34 +193,55 @@ run_sensory_mfa <- function(data, selections, config) {
   height <- config$fig_options$height; if (is.null(height) || is.na(height)) height <- 6
   dpi    <- config$fig_options$dpi;    if (is.null(dpi)    || is.na(dpi))    dpi    <- 300
 
-  # ── Individuals map ──────────────────────────────────────────────────────────
-  mfa_ind_plot <- factoextra::fviz_mfa_ind(
-    mfa_fit,
-    repel   = TRUE,
-    col.ind = "#2C7FB8"
-  ) + ggplot2::ggtitle("MFA – Individuals")
+  # The MFA tables above are always written; the figures are optional
+  # (settings.yaml: outputs.figures.mfa).
+  save_figures <- sensanalyser_save_figures(config, "mfa")
 
-  ggplot2::ggsave(filename = fig_ind, plot = mfa_ind_plot,
-                  width = width, height = height, dpi = dpi)
+  if (save_figures) {
+    # ── Individuals map ────────────────────────────────────────────────────────
+    mfa_ind_plot <- factoextra::fviz_mfa_ind(
+      mfa_fit,
+      repel   = TRUE,
+      col.ind = "#2C7FB8"
+    ) + ggplot2::ggtitle("MFA – Individuals")
 
-  # ── Variables correlation circle ─────────────────────────────────────────────
-  mfa_var_plot <- factoextra::fviz_mfa_var(
-    mfa_fit,
-    "quanti.var",
-    repel      = TRUE,
-    col.var    = "#D95F02",
-    col.circle = "grey70"
-  ) + ggplot2::ggtitle("MFA – Variables")
+    ggplot2::ggsave(filename = fig_ind, plot = mfa_ind_plot,
+                    width = width, height = height, dpi = dpi)
 
-  ggplot2::ggsave(filename = fig_var, plot = mfa_var_plot,
-                  width = width, height = height, dpi = dpi)
+    # ── Variables correlation circle ───────────────────────────────────────────
+    mfa_var_plot <- factoextra::fviz_mfa_var(
+      mfa_fit,
+      "quanti.var",
+      repel      = TRUE,
+      col.var    = "#D95F02",
+      col.circle = "grey70"
+    ) + ggplot2::ggtitle("MFA – Variables")
+
+    ggplot2::ggsave(filename = fig_var, plot = mfa_var_plot,
+                    width = width, height = height, dpi = dpi)
+  } else {
+    cli::cli_alert_info("MFA figures skipped (outputs.figures.mfa is false).")
+  }
 
   cli::cli_alert_success("Saved: {eig_path}")
   cli::cli_alert_success("Saved: {ind_path}")
   cli::cli_alert_success("Saved: {var_path}")
   cli::cli_alert_success("Saved: {groups_path}")
-  cli::cli_alert_success("Saved: {fig_ind}")
-  cli::cli_alert_success("Saved: {fig_var}")
+  if (save_figures) {
+    cli::cli_alert_success("Saved: {fig_ind}")
+    cli::cli_alert_success("Saved: {fig_var}")
+  }
+
+  file_paths <- list(
+    eigenvalues            = eig_path,
+    individual_coordinates = ind_path,
+    variable_coordinates   = var_path,
+    group_specification    = groups_path
+  )
+  if (save_figures) {
+    file_paths$individuals_plot <- fig_ind
+    file_paths$variables_plot   <- fig_var
+  }
 
   list(
     skipped                = FALSE,
@@ -229,13 +250,6 @@ run_sensory_mfa <- function(data, selections, config) {
     individual_coordinates = ind_coord,
     variable_coordinates   = var_coord,
     groups                 = groups,
-    file_paths = list(
-      eigenvalues            = eig_path,
-      individual_coordinates = ind_path,
-      variable_coordinates   = var_path,
-      group_specification    = groups_path,
-      individuals_plot       = fig_ind,
-      variables_plot         = fig_var
-    )
+    file_paths             = file_paths
   )
 }

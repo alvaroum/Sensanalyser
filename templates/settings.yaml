@@ -95,7 +95,17 @@ multivariate:
 outputs:
   descriptives: true
   tables: true
-  figures: true
+
+  # Which figures to save. Every analysis still runs and writes its tables;
+  # this only controls the image files.
+  #   figures: false     - no figures at all
+  #   figures: true      - all of them
+  figures:
+    spider: true
+    pca: true
+    hcpc: true
+    mfa: true
+
   report: false                # render the Quarto report
   report_formats: [html, docx]
 
@@ -120,16 +130,50 @@ outputs:
     #   all_products: null     # null = every product
 
 
-# ─── 7. DERIVED ATTRIBUTES ────────────────────────────────────────────────
-# Combine attributes into new ones (defined, for now, in
-# data/dictionary/derived_attributes.yaml).
+# ─── 7. DISPLAY LABELS ────────────────────────────────────────────────────
+# How names appear in tables, figures and the report. Anything not listed
+# keeps its raw name (with underscores turned into spaces).
+labels:
+  # Merge product names that mean the same thing (applied while cleaning).
+  aliases: {}
+  # aliases:
+  #   product:
+  #     "bread_a": "Bread A"
+
+  variables: {}                # column headings
+  # variables:
+  #   product: Product
+  #   user: Panelist
+
+  levels: {}                   # factor level labels
+  # levels:
+  #   product:
+  #     ctrl: Control
+
+  attributes: {}               # sensory attribute labels
+  # attributes:
+  #   sweet_a: Sweetness (Aroma)
+
+
+# ─── 8. DERIVED ATTRIBUTES ────────────────────────────────────────────────
+# Combine several attributes into a new one, computed before modelling.
 derived:
-  enabled: false
+  enabled: false               # set true to compute the definitions below
   digits: null                 # null = no rounding
   output_label: null           # subfolder for derived-attribute outputs
 
+derived_attributes: {}
+# derived_attributes:
+#   overall_fruity:
+#     label: Overall Fruity
+#     method: mean             # row-wise mean, ignoring missing scores
+#     min_non_missing: 1       # how many source scores must be present
+#     source_variables:
+#       - stone_fruits_a
+#       - tropical_a
 
-# ─── 8. PRODUCT SUBSETS ───────────────────────────────────────────────────
+
+# ─── 9. PRODUCT SUBSETS ───────────────────────────────────────────────────
 # Each entry re-runs the whole analysis on part of the products and writes to
 # its own outputs subfolder. Use include OR exclude, not both.
 subsets: {}
@@ -140,7 +184,7 @@ subsets: {}
 #     include: [Treatment A, Treatment B]
 
 
-# ─── 9. ADVANCED ──────────────────────────────────────────────────────────
+# ─── 10. ADVANCED ──────────────────────────────────────────────────────────
 advanced:
   # true = ask which files/variables to use, with console prompts
   interactive_setup: false

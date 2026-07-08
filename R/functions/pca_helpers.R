@@ -152,6 +152,28 @@ run_sensory_pca <- function(data, selections, config, posthoc_result = NULL, hcp
   height <- config$fig_options$height; if (is.null(height) || is.na(height)) height <- 6
   dpi    <- config$fig_options$dpi;    if (is.null(dpi)    || is.na(dpi))    dpi    <- 300
 
+  # The PCA tables above are always written; the figures are optional
+  # (settings.yaml: outputs.figures.pca).
+  save_figures <- sensanalyser_save_figures(config, "pca")
+  if (!save_figures) {
+    cli::cli_alert_info("PCA figures skipped (outputs.figures.pca is false).")
+    cli::cli_alert_success("Saved: {eig_path}")
+    cli::cli_alert_success("Saved: {score_path}")
+    cli::cli_alert_success("Saved: {load_path}")
+    return(list(
+      skipped              = FALSE,
+      pca_object           = pca_fit,
+      eigenvalues          = eig,
+      group_scores         = scores,
+      variable_coordinates = loadings,
+      file_paths = list(
+        eigenvalues          = eig_path,
+        group_scores         = score_path,
+        variable_coordinates = load_path
+      )
+    ))
+  }
+
   # ── Scree plot ──────────────────────────────────────────────────────────────
   scree_plot <- ggplot2::ggplot(eig, ggplot2::aes(x = .data$component, y = .data$variance_percent)) +
     ggplot2::geom_col(fill = "#2C7FB8") +
