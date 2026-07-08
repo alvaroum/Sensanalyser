@@ -50,7 +50,7 @@ global_toggles <- list(
   # Descriptives and models
   run_descriptives = TRUE,
   run_anova_models = FALSE,
-  run_mixed_models = FALSE,
+  run_mixed_models = TRUE,
   run_posthoc      = FALSE,
   
   # Multivariate analyses

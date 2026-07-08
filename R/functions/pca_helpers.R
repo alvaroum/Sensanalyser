@@ -6,6 +6,47 @@
 #'
 #' @keywords internal
 
+#' Drop attributes that lack scores for some products
+#'
+#' @description
+#' Product-level mean matrices feed the PCA and HCPC. When raw files from
+#' different sessions measure different attribute sets, an attribute can end
+#' up with no scores at all for some products, giving NaN means that crash
+#' prcomp/HCPC. Such attributes cannot be used in a multivariate analysis of
+#' ALL products, so they are excluded here with an explicit warning (the
+#' univariate ANOVA results still cover them). Zero-variance attributes are
+#' removed for the same reason: scaled PCA cannot use them.
+#'
+#' @param x Data frame of product-level means (products in rows).
+#' @param analysis_label Short label for the warning, e.g. "PCA".
+#' @return `x` without the unusable columns.
+#' @keywords internal
+.drop_unmeasured_attributes <- function(x, analysis_label) {
+  bad <- names(x)[vapply(x, function(col) any(!is.finite(col)), logical(1))]
+  if (length(bad) > 0) {
+    cli::cli_alert_warning(paste0(
+      analysis_label, ": excluding ", length(bad),
+      " attribute(s) with no scores for one or more products ",
+      "(not measured in every session/raw file): ",
+      paste(bad, collapse = ", ")
+    ))
+    x <- x[, setdiff(names(x), bad), drop = FALSE]
+  }
+
+  variable_sd <- vapply(x, stats::sd, numeric(1))
+  constant <- names(x)[!is.finite(variable_sd) | variable_sd <= 0]
+  if (length(constant) > 0) {
+    cli::cli_alert_warning(paste0(
+      analysis_label, ": excluding ", length(constant),
+      " attribute(s) with identical mean scores for every product: ",
+      paste(constant, collapse = ", ")
+    ))
+    x <- x[, setdiff(names(x), constant), drop = FALSE]
+  }
+
+  x
+}
+
 #' Run sensory PCA
 #'
 #' @param data Working dataset
@@ -68,6 +109,12 @@ run_sensory_pca <- function(data, selections, config, posthoc_result = NULL, hcp
   x <- pca_input %>% dplyr::select(dplyr::all_of(dvs)) %>% as.data.frame()
   rownames(x) <- row_ids
   colnames(x) <- .apply_outcome_labels(colnames(x), dict)
+
+  x <- .drop_unmeasured_attributes(x, "PCA")
+  if (ncol(x) < 2) {
+    cli::cli_alert_warning("Skipping PCA: fewer than 2 usable attributes remain after excluding unmeasured/constant ones.")
+    return(list(skipped = TRUE, reason = "Insufficient usable attributes after NA/zero-variance filtering"))
+  }
 
   pca_fit <- stats::prcomp(x, center = TRUE, scale. = TRUE)
 

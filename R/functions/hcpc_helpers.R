@@ -25,6 +25,40 @@
   })
 }
 
+#' Draw a readable HCPC dendrogram
+#'
+#' Base-graphics dendrogram tuned for product labels: leaves hang from a
+#' common baseline (hang = -1), the bottom margin grows with the longest
+#' label so names are never cut off, label size shrinks gently with the
+#' number of products, and the default plot.hclust annotations (the
+#' dist()/method call printed under the axis) are suppressed.
+#'
+#' @param hc An stats::hclust object.
+#' @param main Plot title.
+#' @param k Optional number of clusters to highlight with coloured boxes.
+#' @param cut_height Optional height at which to draw a dashed cut line.
+#' @keywords internal
+.plot_hcpc_dendrogram <- function(hc, main, k = NULL, cut_height = NULL) {
+  n <- length(hc$order)
+  labels <- if (is.null(hc$labels)) character(0) else hc$labels
+  label_cex <- max(0.6, min(1.1, 30 / max(n, 1)))
+  longest <- if (length(labels) > 0) max(nchar(labels), na.rm = TRUE) else 8
+  bottom_margin <- min(12, max(5, ceiling(longest * label_cex * 0.35)))
+
+  op <- graphics::par(mar = c(bottom_margin, 4.5, 3, 1))
+  on.exit(graphics::par(op), add = TRUE)
+
+  graphics::plot(hc, hang = -1, main = main, xlab = "", sub = "",
+                 ylab = "Cluster distance (height)", cex = label_cex)
+  if (!is.null(cut_height) && is.finite(cut_height)) {
+    graphics::abline(h = cut_height, lty = 2, lwd = 1.5, col = "red3")
+  }
+  if (!is.null(k) && is.finite(k) && k > 1 && k < n) {
+    stats::rect.hclust(hc, k = k, border = seq_len(k) + 1)
+  }
+  invisible(NULL)
+}
+
 #' Run sensory HCPC / hierarchical cluster analysis
 #'
 #' @param data Working dataset.
@@ -75,14 +109,14 @@ run_sensory_hcpc <- function(data, selections, config) {
   rownames(x) <- row_ids
   colnames(x) <- .apply_outcome_labels(colnames(x), dict)
 
-  # Remove zero-variance variables at product-mean level because scaled PCA and
-  # HCPC cannot use them reliably.
-  variable_sd <- vapply(x, stats::sd, numeric(1), na.rm = TRUE)
-  x <- x[, is.finite(variable_sd) & variable_sd > 0, drop = FALSE]
+  # Attributes without scores for some products (sessions measuring different
+  # attribute sets) or with zero variance cannot enter the scaled PCA/HCPC;
+  # drop them with an explicit warning (helper shared with the PCA module).
+  x <- .drop_unmeasured_attributes(x, "HCPC")
 
   if (ncol(x) < 2 || nrow(x) < 3) {
-    cli::cli_alert_warning("Skipping HCPC: insufficient non-constant variables or product levels.")
-    return(list(skipped = TRUE, reason = "Insufficient data after zero-variance filtering"))
+    cli::cli_alert_warning("Skipping HCPC: insufficient usable variables or product levels after excluding unmeasured/constant attributes.")
+    return(list(skipped = TRUE, reason = "Insufficient data after NA/zero-variance filtering"))
   }
 
   ncp <- min(nrow(x) - 1L, ncol(x))
@@ -103,34 +137,67 @@ run_sensory_hcpc <- function(data, selections, config) {
   interactive_hcpc <- (hcpc_n_clusters == 0)
 
   if (interactive_hcpc) {
-    # FactoMineR's built-in click-to-cut (nb.clust = 0, graph = TRUE) relies on
-    # locator(), which fails in many environments (RStudio on macOS, Positron,
-    # off-screen devices). Instead: draw the dendrogram ourselves, ask the user
-    # to type the cluster count, then call HCPC with that fixed number.
-    cli::cli_alert_info("Displaying dendrogram — review it, then type the number of clusters at the prompt.")
+    # Click-to-cut on our own dendrogram (FactoMineR's nb.clust = 0 flow is
+    # avoided because its device handling misbehaves in some environments).
+    # The user clicks at a height; the implied cluster count is shown with
+    # coloured boxes and confirmed. If clicking is not possible on the
+    # current device (locator() unsupported, or the user aborts), fall back
+    # to typing the cluster count.
+    cli::cli_alert_info("Displaying dendrogram - click at the height where the tree should be cut.")
 
     coord_preview <- as.data.frame(pca_fit$ind$coord)
     hc_preview    <- stats::hclust(stats::dist(coord_preview), method = "ward.D2")
+    n_leaves      <- nrow(coord_preview)
 
     grDevices::dev.new()
-    graphics::plot(
-      hc_preview,
-      main = "HCPC – Dendrogram (review, then type cluster count in the console)",
-      xlab = NULL, sub = NULL
-    )
-
+    k_chosen <- NULL
     repeat {
-      cat("\nHow many clusters? Enter a whole number >= 2:\n> ")
-      k <- suppressWarnings(as.integer(trimws(readline())))
-      if (!is.na(k) && k >= 2 && k < nrow(coord_preview)) {
-        hcpc_n_clusters <- k
+      .plot_hcpc_dendrogram(
+        hc_preview,
+        main = "HCPC - click at the height where the tree should be cut"
+      )
+      cat("\nClick on the dendrogram at the height where you want to cut the tree.",
+          "\n(To type the number of clusters instead, press Esc in the plot window.)\n")
+      click <- tryCatch(graphics::locator(1), error = function(e) NULL)
+      if (is.null(click) || length(click$y) == 0 || !is.finite(click$y[[1]])) {
+        break  # clicking unavailable or aborted -> typed fallback below
+      }
+      k <- length(unique(stats::cutree(hc_preview, h = click$y[[1]])))
+      if (k < 2 || k >= n_leaves) {
+        cli::cli_alert_danger(
+          "A cut there gives {k} cluster(s). Click between the branch joins, so the cut line crosses 2 to {n_leaves - 1} branches."
+        )
+        next
+      }
+      .plot_hcpc_dendrogram(
+        hc_preview,
+        main = sprintf("Cut at height %.2f -> %d clusters", click$y[[1]], k),
+        k = k, cut_height = click$y[[1]]
+      )
+      ans <- tolower(trimws(readline(
+        sprintf("This cut gives %d clusters (boxes on the plot). Keep it? [Y = yes / n = click again] ", k)
+      )))
+      if (ans %in% c("", "y", "yes")) {
+        k_chosen <- k
         break
       }
-      cli::cli_alert_danger(
-        "Please enter a whole number between 2 and {nrow(coord_preview) - 1}."
-      )
     }
 
+    if (is.null(k_chosen)) {
+      repeat {
+        cat("\nHow many clusters? Enter a whole number >= 2:\n> ")
+        k <- suppressWarnings(as.integer(trimws(readline())))
+        if (!is.na(k) && k >= 2 && k < n_leaves) {
+          k_chosen <- k
+          break
+        }
+        cli::cli_alert_danger(
+          "Please enter a whole number between 2 and {n_leaves - 1}."
+        )
+      }
+    }
+
+    hcpc_n_clusters <- k_chosen
     grDevices::dev.off()
     interactive_hcpc <- FALSE
   }
@@ -186,25 +253,22 @@ run_sensory_hcpc <- function(data, selections, config) {
   coord <- as.data.frame(pca_fit$ind$coord)
   hc <- stats::hclust(stats::dist(coord), method = "ward.D2")
 
-  grDevices::png(dendro_path, width = width, height = height, units = "in", res = dpi)
-  graphics::plot(hc, main = "HCPC – Hierarchical clustering of products", xlab = NULL, sub = NULL)
-
-  # Highlight the selected cluster cut directly on the dendrogram. When the
-  # user fixes nb.clust (e.g. 4), draw rectangles for that solution; otherwise
-  # fall back to the number of clusters returned by HCPC.
-  k_rect <- if (!is.null(config$analysis$hcpc_n_clusters) &&
-                length(config$analysis$hcpc_n_clusters) == 1 &&
-                is.finite(config$analysis$hcpc_n_clusters) &&
-                config$analysis$hcpc_n_clusters > 1) {
-    as.integer(config$analysis$hcpc_n_clusters)
+  # Highlight the selected cluster cut directly on the dendrogram.
+  # hcpc_n_clusters holds the resolved choice at this point (fixed number
+  # from the config, or the count picked by clicking); -1 (automatic) falls
+  # back to the number of clusters HCPC actually returned.
+  k_rect <- if (hcpc_n_clusters > 1) {
+    as.integer(hcpc_n_clusters)
   } else {
     length(unique(cluster_tbl$cluster))
   }
 
-  if (is.finite(k_rect) && k_rect > 1 && k_rect < nrow(coord)) {
-    stats::rect.hclust(hc, k = k_rect, border = seq_len(k_rect) + 1)
-  }
+  # Give each product label breathing room; small panels stay at the
+  # configured width.
+  dendro_width <- max(width, 0.45 * nrow(coord) + 3)
 
+  grDevices::png(dendro_path, width = dendro_width, height = height, units = "in", res = dpi)
+  .plot_hcpc_dendrogram(hc, main = "HCPC - Hierarchical clustering of products", k = k_rect)
   grDevices::dev.off()
 
   if (all(c("Dim.1", "Dim.2") %in% names(pca_scores))) {
