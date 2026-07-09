@@ -66,6 +66,18 @@ run_project("projects/my_study")
 
 That's it. Outputs land in `projects/my_study/outputs/` and never overwrite another project's.
 
+### Starting a project over
+
+To wipe a project's results and set it up again from scratch — re-selecting the raw data files and variables as if it were brand new:
+
+```r
+source("R/load_sensanalyser.R")
+reset_project("projects/my_study")           # keeps your model, labels, subsets
+reset_project("projects/my_study", full = TRUE)   # also resets every setting
+```
+
+This deletes all outputs, cleaned data and rendered reports, then makes the next `run_project()` prompt you for the files and variables again. Your raw data in `data/raw/` is never touched.
+
 ### Coming from an older project?
 
 Projects that still use `project_config.R` and scattered dictionary YAMLs can be converted to a single `settings.yaml` in one call (originals are kept as `*.migrated`, nothing is deleted):

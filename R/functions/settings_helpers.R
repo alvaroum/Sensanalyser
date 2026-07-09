@@ -15,6 +15,9 @@
 
 # Values a user may write for a "let Sensanalyser decide" choice.
 SENS_AUTO <- "auto"
+# Sentinel asking Sensanalyser to prompt for this choice on the next
+# interactive run (used by reset_project() to reproduce a fresh setup).
+SENS_ASK <- "ask"
 
 .sens_or <- function(x, default) if (is.null(x)) default else x
 
@@ -336,6 +339,7 @@ sensanalyser_validate_settings <- function(settings, user_settings = NULL) {
   product  <- settings$variables$product
   panelist <- settings$variables$panelist
   if (!is.null(product) && !is.null(panelist) &&
+      !identical(product, SENS_ASK) && !identical(panelist, SENS_ASK) &&
       nzchar(panelist) && identical(product, panelist)) {
     problems <- c(problems, sprintf(
       "variables.product and variables.panelist are both '%s'. The product and the assessor must be different columns.",
@@ -448,6 +452,11 @@ sensanalyser_load_settings <- function(project_dir) {
 .sens_resolve_data_files <- function(settings) {
   files <- settings$data$files
   root <- settings$project_root
+
+  # `ask` -> NULL so an interactive run prompts with the file picker.
+  if (identical(files, SENS_ASK)) {
+    return(NULL)
+  }
 
   if (identical(files, SENS_AUTO)) {
     raw_dir <- file.path(root, "data", "raw")
@@ -660,14 +669,25 @@ sensanalyser_settings_to_config <- function(settings) {
     as.integer(clusters)
   }
 
+  # `ask` on a variable field -> NULL, so an interactive run prompts for it
+  # (used by reset_project). `auto` keeps auto-detection.
+  ask_or <- function(x, otherwise) if (identical(x, SENS_ASK)) NULL else otherwise
+
   attributes <- settings$variables$attributes
-  if (!identical(attributes, SENS_AUTO)) {
+  if (identical(attributes, SENS_ASK)) {
+    attributes <- NULL
+  } else if (!identical(attributes, SENS_AUTO)) {
     attributes <- setdiff(as.character(unlist(attributes)),
                           as.character(unlist(settings$variables$exclude)))
   }
 
-  factors <- unique(c(settings$variables$product,
-                      as.character(unlist(settings$variables$extra_factors))))
+  product  <- ask_or(settings$variables$product, settings$variables$product)
+  panelist <- ask_or(settings$variables$panelist, settings$variables$panelist)
+  factors <- if (is.null(product)) {
+    NULL
+  } else {
+    unique(c(product, as.character(unlist(settings$variables$extra_factors))))
+  }
 
   state <- .sens_materialise_state(settings)
 
@@ -714,7 +734,7 @@ sensanalyser_settings_to_config <- function(settings) {
       dependent_variables          = attributes,
       exclude_attributes           = as.character(unlist(settings$variables$exclude)),
       factors                      = factors,
-      subject_id                   = settings$variables$panelist,
+      subject_id                   = panelist,
       random_effects               = as.character(unlist(settings$model$random_effects)),
       repeated_measures_factors    = as.character(unlist(settings$model$repeated_measures)),
       model_type                   = settings$model$type,

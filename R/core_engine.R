@@ -41,6 +41,79 @@
 #'   - `$config`: the resolved config (potentially updated from YAML)
 #'   - `$results`: named list of analysis results (built up through later phases)
 #'
+#' Delete a project's generated artifacts (outputs, cleaned data, reports)
+#'
+#' @description
+#' Clears everything the pipeline produces so a project can be re-run from a
+#' clean slate: the run record, the contents of `outputs/`, the cleaned CSVs
+#' in `data/clean/`, and rendered reports. Raw data, `settings.yaml` and the
+#' display labels are never touched. Paths are resolved from
+#' `config$project_root` so the cleaned-data folder is always `data/clean`.
+#'
+#' @param config The engine config list (needs `project_root` and `paths`).
+#' @return Invisibly, the character vector of locations cleared.
+#' @keywords internal
+.sensanalyser_clear_outputs <- function(config) {
+  cli::cli_alert_info("Clearing outputs and cleaned data to start from scratch...")
+  cleared <- character(0)
+
+  root <- config$project_root
+  if (is.null(root) && !is.null(config$paths$table_root)) {
+    # Fall back to walking up from outputs/tables when project_root is absent.
+    root <- dirname(dirname(config$paths$table_root))
+  }
+
+  # 1. Run record (settings mode: state/resolved_run.yaml; legacy: analysis_config.yaml)
+  saved_cfg_path <- config$paths$analysis_config
+  if (!is.null(saved_cfg_path) && file.exists(saved_cfg_path)) {
+    file.remove(saved_cfg_path)
+    cleared <- c(cleared, saved_cfg_path)
+  }
+
+  # 2. Outputs (tables, figures, diagnostics, logs)
+  outputs_dirs <- c(config$paths$table_root, config$paths$figure_root,
+                    config$paths$diagnostics_root, config$paths$logs_root)
+  for (d in outputs_dirs) {
+    if (!is.null(d) && dir.exists(d)) {
+      unlink(list.files(d, full.names = TRUE), recursive = TRUE)
+      cleared <- c(cleared, d)
+    }
+  }
+
+  # 3. Cleaned data CSVs — resolved from the project root, not the run record.
+  if (!is.null(root)) {
+    clean_dir <- file.path(root, "data", "clean")
+    if (dir.exists(clean_dir)) {
+      unlink(list.files(clean_dir, full.names = TRUE), recursive = TRUE)
+      cleared <- c(cleared, clean_dir)
+    }
+  }
+
+  # 4. Rendered reports (keep the .qmd source and the Quarto cache clean)
+  if (!is.null(config$paths$report_template)) {
+    report_dir <- dirname(config$paths$report_template)
+    if (dir.exists(report_dir)) {
+      rendered <- list.files(report_dir, pattern = "\\.(html|docx|pdf|tex|aux|log|toc)$",
+                             full.names = TRUE)
+      rendered <- rendered[!grepl("\\.qmd$", rendered)]
+      if (length(rendered) > 0) {
+        file.remove(rendered)
+        cleared <- c(cleared, report_dir)
+      }
+      cache_dir <- file.path(report_dir, paste0(
+        tools::file_path_sans_ext(basename(config$paths$report_template)), "_files"))
+      if (dir.exists(cache_dir)) unlink(cache_dir, recursive = TRUE)
+    }
+  }
+
+  if (length(cleared) > 0) {
+    cli::cli_alert_success("Cleared: {.path {unique(cleared)}}")
+  } else {
+    cli::cli_alert_info("Nothing to clear.")
+  }
+  invisible(unique(cleared))
+}
+
 #' @examples
 #' \dontrun{
 #'   source(here::here("R", "core_engine.R"))
@@ -84,56 +157,7 @@ run_sensanalyser_pipeline <- function(config) {
         default = FALSE
       )
       if (isTRUE(clear_choice)) {
-        cli::cli_alert_info("Clearing environment and outputs to start from scratch...")
-        
-        # 1. Delete analysis_config.yaml
-        if (!is.null(saved_cfg_path) && file.exists(saved_cfg_path)) {
-          file.remove(saved_cfg_path)
-          cli::cli_alert_success("Deleted config: {saved_cfg_path}")
-        }
-        
-        # 2. Delete outputs folder contents (tables, figures, diagnostics, logs)
-        outputs_dirs <- c(
-          config$paths$table_root,
-          config$paths$figure_root,
-          config$paths$diagnostics_root,
-          config$paths$logs_root
-        )
-        for (d in outputs_dirs) {
-          if (!is.null(d) && dir.exists(d)) {
-            unlink(file.path(d, "*"), recursive = TRUE)
-            cli::cli_alert_success("Cleared directory: {d}")
-          }
-        }
-
-        # 3. Delete clean data CSVs (data/clean/ lives next to data/dictionary/)
-        clean_dir <- file.path(dirname(dirname(saved_cfg_path)), "clean")
-        if (dir.exists(clean_dir)) {
-          unlink(file.path(clean_dir, "*"), recursive = FALSE)
-          cli::cli_alert_success("Cleared clean data: {clean_dir}")
-        }
-        
-        # 4. Delete rendered reports in the reports folder
-        report_dir <- dirname(here::here(config$paths$report_template))
-        if (dir.exists(report_dir)) {
-          report_files <- list.files(
-            report_dir, 
-            pattern = "\\.(html|docx|pdf|tex|aux|log|toc)$", 
-            full.names = TRUE
-          )
-          report_files <- report_files[!grepl("\\.qmd$", report_files)]
-          if (length(report_files) > 0) {
-            file.remove(report_files)
-            cli::cli_alert_success("Deleted rendered reports in {report_dir}")
-          }
-          
-          # Delete report cache folder
-          report_files_dir <- file.path(report_dir, paste0(tools::file_path_sans_ext(basename(config$paths$report_template)), "_files"))
-          if (dir.exists(report_files_dir)) {
-            unlink(report_files_dir, recursive = TRUE)
-            cli::cli_alert_success("Deleted Quarto cache folder: {report_files_dir}")
-          }
-        }
+        .sensanalyser_clear_outputs(config)
       }
     }
   }

@@ -276,6 +276,22 @@ check("interactive choices are written back into settings.yaml",
       identical(s$model$type, "two_way_mixed"),   # untouched setting kept
       isFALSE(s$outputs$figures$pca))             # untouched setting kept
 
+# ── The 'ask' sentinel maps to NULL so the engine prompts ─────────────────
+settings_yaml(
+  "data:", "  files: ask",
+  "variables:", "  attributes: ask", "  product: ask", "  panelist: ask"
+)
+cfg <- config()
+check("ask on data/variables becomes NULL (engine will prompt)",
+      is.null(cfg$paths$raw_data),
+      is.null(cfg$analysis$dependent_variables),
+      is.null(cfg$analysis$factors),
+      is.null(cfg$analysis$subject_id))
+
+settings_yaml("variables:", "  product: ask", "  panelist: ask")
+check("two ask sentinels do not trip the product == panelist check",
+      is.list(sensanalyser_settings_to_config(load())))
+
 unlink(file.path(proj, "data", "raw", "d.csv"))
 settings_yaml("")
 check_error("an empty data/raw folder is reported", config(), "No data files found")

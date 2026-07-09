@@ -61,3 +61,15 @@ create_project <- function(project_dir, ...) {
 migrate_project <- function(project_dir, ...) {
   sensanalyser_migrate_project(project_dir, ...)
 }
+
+#' Reset a project to a clean, start-from-scratch state
+#'
+#' Deletes all outputs, cleaned data and rendered reports, and makes the next
+#' run ask for the data files and variables again. Raw data is kept. Pass
+#' `full = TRUE` to also reset every setting to the template defaults.
+#'
+#' @param project_dir Path to the project folder.
+#' @export
+reset_project <- function(project_dir, ...) {
+  sensanalyser_reset_project(project_dir, ...)
+}

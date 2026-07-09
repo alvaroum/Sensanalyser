@@ -84,6 +84,105 @@ sensanalyser_resolve_project_root <- function(project_dir) {
   return(normalizePath(project_dir))
 }
 
+#' Reset a project to a clean, start-from-scratch state
+#'
+#' @description
+#' Wipes everything the pipeline generated (all of `outputs/`, the cleaned
+#' CSVs in `data/clean/`, the run record and rendered reports) and rewrites
+#' `settings.yaml` so the next run behaves like a fresh project: it prompts
+#' you to pick the raw data files and the variables again. Your raw data in
+#' `data/raw/` is never touched.
+#'
+#' By default the analysis settings you tuned - model, outliers, figures,
+#' display labels, derived attributes and subsets - are kept. Pass
+#' `full = TRUE` for a completely blank project (template defaults only).
+#'
+#' @param project_dir Path to the project folder.
+#' @param full Reset every setting to the template defaults, not just the
+#'   data and variable selections?
+#' @param ask Confirm before deleting? Defaults to TRUE in an interactive
+#'   session. Set FALSE to reset non-interactively (e.g. in a script).
+#' @return The project path, invisibly.
+#' @export
+sensanalyser_reset_project <- function(project_dir, full = FALSE, ask = interactive()) {
+  project_root <- sensanalyser_resolve_project_root(project_dir)
+
+  cli::cli_h2("Reset project {.path {project_dir}}")
+  cli::cli_text(paste(
+    "This deletes all outputs, cleaned data and rendered reports, and makes",
+    "the next run ask again for the data files and variables.",
+    if (full) "Every setting is reset to the template defaults."
+    else "Your model, labels and other settings are kept.",
+    "Raw data in {.path data/raw} is not touched."
+  ))
+
+  if (isTRUE(ask)) {
+    ok <- utils::askYesNo("Reset this project now?", default = FALSE)
+    if (!isTRUE(ok)) {
+      cli::cli_alert_info("Reset cancelled.")
+      return(invisible(project_root))
+    }
+  }
+
+  # 1. Delete generated artifacts (reuse the pipeline's own cleaner). Build the
+  #    minimal config it needs from the current settings, if any.
+  settings_file <- sensanalyser_settings_path(project_root)
+  clear_config <- list(
+    project_root = project_root,
+    paths = list(
+      analysis_config  = file.path(project_root, "data/dictionary/state/resolved_run.yaml"),
+      table_root       = file.path(project_root, "outputs/tables"),
+      figure_root      = file.path(project_root, "outputs/figures"),
+      diagnostics_root = file.path(project_root, "outputs/diagnostics"),
+      logs_root        = file.path(project_root, "outputs/logs"),
+      report_template  = file.path(project_root, "reports/sensanalyser_results_report.qmd")
+    )
+  )
+  .sensanalyser_clear_outputs(clear_config)
+
+  # Also clear the materialised state so nothing stale survives the reset.
+  state_dir <- file.path(project_root, "data", "dictionary", "state")
+  if (dir.exists(state_dir)) {
+    unlink(list.files(state_dir, full.names = TRUE), recursive = TRUE)
+  }
+
+  # 2. Rewrite settings.yaml so the next run is a fresh interactive setup.
+  if (full || !file.exists(settings_file)) {
+    template <- here::here("templates", "settings.yaml")
+    if (file.exists(template)) file.copy(template, settings_file, overwrite = TRUE)
+    settings <- tryCatch(yaml::read_yaml(settings_file), error = function(e) list())
+    if (is.null(settings)) settings <- list()
+  } else {
+    settings <- tryCatch(yaml::read_yaml(settings_file), error = function(e) list())
+    if (is.null(settings)) settings <- list()
+  }
+
+  settings$project$name <- basename(project_root)
+  settings$data$files <- "ask"
+  settings$variables$attributes <- "ask"
+  settings$variables$product <- "ask"
+  settings$variables$panelist <- "ask"
+  settings$variables$extra_factors <- list()
+  settings$advanced$interactive_setup <- TRUE
+
+  header <- c(
+    "# ==========================================================================",
+    "# SENSANALYSER PROJECT SETTINGS",
+    "# ==========================================================================",
+    "#",
+    paste0("# Reset to a clean state on ", format(Sys.Date()), "."),
+    "# The next run will ask for the data files and variables again;",
+    "# your answers are then written back here. See templates/settings.yaml",
+    "# for every documented option.",
+    "# --------------------------------------------------------------------------",
+    ""
+  )
+  writeLines(c(header, strsplit(.sens_as_yaml(settings), "\n", fixed = TRUE)[[1]]), settings_file)
+
+  cli::cli_alert_success("Project reset. Run {.code run_project('{project_dir}')} to set it up again.")
+  invisible(project_root)
+}
+
 #' Return named list of project paths
 #' @export
 sensanalyser_project_paths <- function(project_root) {

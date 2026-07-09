@@ -186,7 +186,10 @@ subsets: {}
 
 # ─── 10. ADVANCED ──────────────────────────────────────────────────────────
 advanced:
-  # true = ask which files/variables to use, with console prompts
+  # true = ask which files/variables to use, with console prompts. On the
+  # first run your answers are written back here and this is turned off.
+  # Tip: to start a project over from scratch, run reset_project("<project>")
+  # instead of editing this by hand - it clears outputs and re-asks everything.
   interactive_setup: false
   # true = print a data overview and stop before analysing
   discover_variables: false
