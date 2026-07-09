@@ -332,7 +332,32 @@ sensanalyser_validate_settings <- function(settings, user_settings = NULL) {
     }
   }
 
-  # 5. Subsets --------------------------------------------------------------
+  # 5. Common variable mistakes --------------------------------------------
+  product  <- settings$variables$product
+  panelist <- settings$variables$panelist
+  if (!is.null(product) && !is.null(panelist) &&
+      nzchar(panelist) && identical(product, panelist)) {
+    problems <- c(problems, sprintf(
+      "variables.product and variables.panelist are both '%s'. The product and the assessor must be different columns.",
+      product
+    ))
+  }
+  extra <- as.character(unlist(settings$variables$extra_factors))
+  if (!is.null(product) && product %in% extra) {
+    problems <- c(problems, sprintf(
+      "variables.product ('%s') is also listed in variables.extra_factors. List it only as the product.", product
+    ))
+  }
+  bad_formats <- setdiff(as.character(unlist(settings$outputs$report_formats)),
+                         c("html", "docx", "pdf"))
+  if (length(bad_formats) > 0) {
+    problems <- c(problems, sprintf(
+      "outputs.report_formats: '%s' is not supported (use html, docx or pdf).",
+      paste(bad_formats, collapse = ", ")
+    ))
+  }
+
+  # 6. Subsets --------------------------------------------------------------
   for (name in names(settings$subsets)) {
     def <- settings$subsets[[name]]
     if (!is.list(def) || !any(c("include", "exclude") %in% names(def))) {
@@ -365,6 +390,22 @@ sensanalyser_validate_settings <- function(settings, user_settings = NULL) {
 #' @export
 sensanalyser_settings_path <- function(project_dir) {
   file.path(project_dir, "settings.yaml")
+}
+
+#' Serialise a list to YAML using true/false (not yaml's yes/no)
+#'
+#' Keeps written settings.yaml files consistent with the template a user
+#' compares against.
+#'
+#' @keywords internal
+.sens_as_yaml <- function(x) {
+  yaml::as.yaml(x, indent = 2, handlers = list(
+    logical = function(v) {
+      out <- ifelse(v, "true", "false")
+      class(out) <- "verbatim"
+      out
+    }
+  ))
 }
 
 #' Load, merge and validate a project's settings.yaml
@@ -429,6 +470,79 @@ sensanalyser_load_settings <- function(project_dir) {
     cli::cli_abort("Data file{?s} listed in settings.yaml not found: {.path {missing}}")
   }
   normalizePath(files)
+}
+
+# ---------------------------------------------------------------------------
+# WRITE CHOICES BACK: turn an interactive run into an explicit settings.yaml
+# ---------------------------------------------------------------------------
+
+#' Write the choices from an interactive run back into settings.yaml
+#'
+#' @description
+#' When a project is set up interactively (console prompts for data files and
+#' variables), the answers used to disappear into a hidden
+#' `analysis_config.yaml`. Instead, they are written back into the user's own
+#' `settings.yaml`: the resolved data files, attribute list, product/panelist
+#' columns and design factors become explicit, and `interactive_setup` is
+#' turned off so the next run reproduces the choices without prompting.
+#'
+#' The user's other settings and section order are preserved (the raw YAML is
+#' updated in place); YAML comments are not, so a note records when and why
+#' the file changed.
+#'
+#' @param project_root Project folder.
+#' @param selections The resolved selection list from the pipeline
+#'   (`pipeline_state$selections`).
+#' @return The settings path, invisibly.
+#' @keywords internal
+.sens_write_choices <- function(project_root, selections) {
+  path <- sensanalyser_settings_path(project_root)
+  if (!file.exists(path)) return(invisible(path))
+
+  user <- tryCatch(yaml::read_yaml(path), error = function(e) NULL)
+  if (is.null(user)) user <- list()
+
+  as_list <- function(x) {
+    x <- x[!is.na(x) & nzchar(as.character(x))]
+    if (length(x) == 0) list() else as.list(as.character(x))
+  }
+
+  # Data files are not chosen interactively in settings mode (data.files
+  # already resolves to concrete paths), so `auto` is left untouched here.
+
+  # ── variables ────────────────────────────────────────────────────────────
+  dvs <- selections$dependent_variables
+  if (length(dvs) > 0) user$variables$attributes <- as_list(dvs)
+  factors <- as.character(selections$factors)
+  if (length(factors) > 0) {
+    user$variables$product <- factors[[1]]
+    user$variables$extra_factors <- as_list(factors[-1])
+  }
+  if (length(selections$subject_id) > 0) {
+    user$variables$panelist <- as.character(selections$subject_id)[[1]]
+  }
+
+  # ── model design columns ─────────────────────────────────────────────────
+  user$model$random_effects    <- as_list(selections$random_effects)
+  user$model$repeated_measures <- as_list(selections$repeated_measures_factors)
+
+  # ── stop prompting next time ─────────────────────────────────────────────
+  user$advanced$interactive_setup <- FALSE
+
+  header <- c(
+    "# ==========================================================================",
+    "# SENSANALYSER PROJECT SETTINGS",
+    "# ==========================================================================",
+    "#",
+    paste0("# Variable selections written from an interactive run on ", format(Sys.Date()), "."),
+    "# interactive_setup was turned off so future runs reproduce these choices.",
+    "# Every option is documented in templates/settings.yaml.",
+    "# --------------------------------------------------------------------------",
+    ""
+  )
+  writeLines(c(header, strsplit(.sens_as_yaml(user), "\n", fixed = TRUE)[[1]]), path)
+  cli::cli_alert_success("Saved your choices into {.path settings.yaml} (interactive setup turned off).")
+  invisible(path)
 }
 
 # ---------------------------------------------------------------------------

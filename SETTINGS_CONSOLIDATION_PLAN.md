@@ -228,15 +228,35 @@ only really affected spider plots.
    migration warned and its `attributes:` was set to `auto`.
 9. ✅ `tests/test_migration.R` (14 checks).
 
-### Phase D — Interactive setup rewrite + polish (~1–2 days)
-9. Prompt answers write into `settings.yaml` (2.4); kill the hidden
-   `analysis_config.yaml` write path.
-10. `settings_summary()` in the run header; non-default highlighting.
-11. Friendly validation errors for the top 10 user mistakes (typo'd key,
-    attribute not in data, subset product misspelled — suggest nearest
-    match with `utils::adist`).
-12. README quick-start rewrite: one page — create project, edit one file,
-    run one line.
+### Phase D — Interactive setup rewrite + polish — **DONE**
+9. ✅ Prompt answers write back into `settings.yaml` via `.sens_write_choices()`:
+   after an interactive run the resolved attributes, product/panelist and
+   design factors become explicit and `interactive_setup` is turned off, so
+   the next run reproduces the choices without prompting. The old
+   `analysis_config.yaml` is no longer authoritative — for settings-driven
+   runs it is written only into `data/dictionary/state/resolved_run.yaml` as
+   an audit record.
+10. ✅ `settings_summary()` runs in the launcher header before every run, with
+    non-default highlighting (landed in Phase A, used throughout).
+11. ✅ Validation polish: nearest-match suggestions for typo'd keys, model
+    types and enums (Phase A); plus product == panelist, product repeated as an
+    extra factor, and unsupported report formats.
+12. ✅ README quick-start rewritten: create a project, edit one file, run one
+    line, with a `migrate_project()` note for old projects.
+
+Interactive-setup note: in settings mode the data-file picker never fires (the
+adapter always resolves `data.files` to concrete paths), so only variable
+selection prompts, and `data.files: auto` is preserved rather than frozen into
+an explicit list.
+
+---
+
+## Status: all four phases complete
+
+Both real projects (`example_study`, `example_study_b`) run from `settings.yaml`.
+Test suites: `Rscript tests/test_settings_helpers.R` (39 checks) and
+`Rscript tests/test_migration.R` (14 checks). example_study output tables are
+byte-identical before/after migration.
 
 ## 4. Migration & compatibility
 

@@ -4,57 +4,78 @@ Sensanalyser is a reusable R workflow for sensory data analysis. It uses a **Hub
 
 ## Architecture
 
-*   **The Hub (Root Directory):** Contains the core engine (`R/`), standard templates (`templates/`), and the batch execution script (`master_mission_control.R`).
-*   **The Spokes (`projects/`):** Each dataset or client gets its own isolated folder. All raw data, outputs, diagnostic logs, and report documents for a project stay within its folder.
+*   **The Hub (Root Directory):** Contains the core engine (`R/`), standard templates (`templates/`), and the launcher (`run_sensanalyser.R`).
+*   **The Spokes (`projects/`):** Each dataset gets its own isolated folder. All raw data, outputs, diagnostics, and reports for a project stay within it, and **everything you configure lives in that project's single `settings.yaml`**. A project folder is self-contained: you can copy or move it and it still runs.
 
-## How to run
+## Quick start
 
-### 1. Create a New Project
+Everything a project needs is one file — `settings.yaml` — and you launch it with one line. Works in Positron or RStudio; no app to install.
 
-You can create a new project workspace by running the helper function in the R console:
-
-```r
-source("R/functions/project_helpers.R")
-sensanalyser_create_project("projects/my_new_project")
-```
-
-This will safely build out the required subdirectories (`data/`, `outputs/`, `reports/`) and copy the baseline templates (like `project_config.R` and the dictionaries) into the new folder.
-
-### 2. Configure Your Project
-
-Navigate into your new project folder (`projects/my_new_project/`) and open `project_config.R`. 
-Here, you can specify your raw data files and analysis parameters.
-
-**Multi-file Data Loading:** You can provide a vector of files if you want them combined automatically before analysis.
-```r
-project_config <- list(
-  paths = list(
-    raw_data = c("data/raw/batch_1.csv", "data/raw/batch_2.csv")
-  ),
-  analysis = list(
-    dependent_variables = "auto",
-    factors = c("product"),
-    subject_id = "assessor",
-    model_type = "linear_mixed_model"
-  )
-)
-```
-*(If `raw_data = NULL`, Sensanalyser will prompt you to select the files interactively).*
-
-### 3. Launch from Master Mission Control
-
-Open `master_mission_control.R` at the root of the repository.
-Add your project to the `active_projects` list:
+### 1. Create a project
 
 ```r
-active_projects <- c(
-  "projects/my_new_project"
-  # You can list multiple projects here to run them sequentially!
-)
+source("R/load_sensanalyser.R")
+create_project("projects/my_study")
 ```
 
-You can toggle which analysis phases run globally inside `master_mission_control.R`.
-Press **Run All** (Ctrl+Shift+Enter) to execute the pipeline.
+This builds the project folders and drops in a fully commented `settings.yaml`.
+
+### 2. Add your data and edit `settings.yaml`
+
+Copy your data files (`.csv`, `.tsv`, `.xlsx`, ...) into `projects/my_study/data/raw/`, then open `projects/my_study/settings.yaml`. Every option is documented inline; an empty file already runs a sensible analysis. A minimal example:
+
+```yaml
+data:
+  files: auto            # every file in data/raw, or list them explicitly
+variables:
+  attributes: auto       # auto-detect the numeric attribute columns
+  product: product
+  panelist: user
+model:
+  type: linear_mixed_model
+  random_effects: [assessor]
+multivariate:
+  hcpc:
+    clusters: click      # auto | click (cut the dendrogram) | a number
+outputs:
+  figures:               # choose which figures to save, per analysis
+    spider: true
+    pca: true
+    hcpc: true
+    mfa: false
+subsets:
+  without_control:
+    exclude: [Control]   # re-runs the whole analysis without these products
+```
+
+Before running, see exactly what a project will do — with every value that differs from the defaults highlighted:
+
+```r
+settings_summary("projects/my_study")
+```
+
+### 3. Run it
+
+Open `run_sensanalyser.R`, point it at your project, and press **Run All** (Ctrl+Shift+Enter):
+
+```r
+source("R/load_sensanalyser.R")
+run_project("projects/my_study")
+# run_projects(c("projects/a", "projects/b"))   # several, in sequence
+```
+
+That's it. Outputs land in `projects/my_study/outputs/` and never overwrite another project's.
+
+### Coming from an older project?
+
+Projects that still use `project_config.R` and scattered dictionary YAMLs can be converted to a single `settings.yaml` in one call (originals are kept as `*.migrated`, nothing is deleted):
+
+```r
+source("R/load_sensanalyser.R")
+migrate_project("projects/my_old_project")
+```
+
+> **What lives where.** You edit only `settings.yaml`. Files Sensanalyser maintains itself (resolved run record, product-split decisions) live in `data/dictionary/state/` — you never touch them. The statistical model presets and the report template are engine assets read from `templates/`; drop your own copy into the project only if you want to customise one.
 
 ---
 
@@ -72,7 +93,7 @@ Outlier detection and policy application are managed via global toggles and dict
 Diagnostics are written to `outputs/diagnostics/`. If `apply_outlier_policy = FALSE`, the pipeline detects outliers but leaves the dataset intact.
 
 ### Phase 4: Descriptives
-Generates formatted long and wide tables (including mean ± SE) written directly to your project's `outputs/tables/` folder. Display labels are automatically resolved using `data/dictionary/renaming_dictionary.yaml`.
+Generates formatted long and wide tables (including mean ± SE) written directly to your project's `outputs/tables/` folder. Display labels come from the `labels:` section of `settings.yaml`.
 
 ### Phase 5: Statistical Models
 Supported model routes include:
@@ -99,4 +120,4 @@ sensanalyser_install_dependencies(categories = "all")
 
 ## Legacy Files
 
-Old scripts from the single-folder architecture have been retained for reference in the `archive/` folder, but are no longer executed by the main pipeline.
+`master_mission_control.R` and the older per-project `project_config.R` still work but are deprecated: `master_mission_control.R` now just forwards to `run_sensanalyser.R`, and any project without a `settings.yaml` falls back to its `project_config.R`. Convert old projects with `migrate_project()` (see Quick start). Older single-folder scripts are kept for reference in `archive/`.

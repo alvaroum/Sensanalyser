@@ -213,7 +213,19 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
 #' @param settings A list from [sensanalyser_load_settings()].
 #' @keywords internal
 .sensanalyser_run_settings <- function(settings) {
-  .sensanalyser_run_config(sensanalyser_settings_to_config(settings))
+  interactive_run <- isTRUE(settings$advanced$interactive_setup)
+  result <- .sensanalyser_run_config(sensanalyser_settings_to_config(settings))
+
+  # An interactive run resolved the data files and variables through console
+  # prompts; write those choices back into settings.yaml so the project is now
+  # fully specified and never prompts again.
+  if (interactive_run && !is.null(result$main) && !is.null(result$main$selections)) {
+    .sens_write_choices(
+      project_root = settings$project_root,
+      selections   = result$main$selections
+    )
+  }
+  invisible(result)
 }
 
 #' Run the main pipeline followed by any product subsets
@@ -228,7 +240,7 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
   subsets <- final_config$product_subsets
   final_config$product_subsets <- NULL
 
-  run_sensanalyser_pipeline(final_config)
+  main_state <- run_sensanalyser_pipeline(final_config)
 
   # ── PRODUCT SUBSET ANALYSES ──────────────────────────────────────────────
   # Each named entry reruns the full pipeline on a filtered dataset and writes
@@ -276,4 +288,6 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
       }
     }
   }
+
+  invisible(list(main = main_state))
 }

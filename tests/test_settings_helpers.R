@@ -237,6 +237,45 @@ check("a project copy of the report template wins",
       identical(config()$paths$report_template,
                 file.path(proj_norm, "reports", "sensanalyser_results_report.qmd")))
 
+# ── Validation polish ─────────────────────────────────────────────────────
+settings_yaml("variables:", "  product: user", "  panelist: user")
+check_error("product == panelist is rejected", load(), "must be different columns")
+
+settings_yaml("variables:", "  product: product", "  extra_factors: [product]")
+check_error("product repeated as an extra factor is rejected", load(), "only as the product")
+
+settings_yaml("outputs:", "  report_formats: [html, pptx]")
+check_error("an unsupported report format is rejected", load(), "not supported")
+
+# ── Write choices back (interactive run -> explicit settings.yaml) ─────────
+settings_yaml(
+  "project:", "  name: demo",
+  "variables:", "  attributes: auto", "  product: product", "  panelist: user",
+  "model:", "  type: two_way_mixed",
+  "outputs:", "  figures:", "    pca: false",
+  "advanced:", "  interactive_setup: true"
+)
+resolved <- list(
+  dependent_variables = c("sweet_a", "sour_a"),
+  factors = c("product", "session"),
+  subject_id = "assessor",
+  repeated_measures_factors = "product",
+  random_effects = "assessor",
+  blocking_factors = character(0)
+)
+.sens_write_choices(proj, resolved)
+s <- load()
+check("interactive choices are written back into settings.yaml",
+      identical(unlist(s$variables$attributes), c("sweet_a", "sour_a")),
+      identical(s$variables$product, "product"),
+      identical(unlist(s$variables$extra_factors), "session"),
+      identical(s$variables$panelist, "assessor"),
+      identical(unlist(s$model$random_effects), "assessor"),
+      identical(unlist(s$model$repeated_measures), "product"),
+      isFALSE(s$advanced$interactive_setup),
+      identical(s$model$type, "two_way_mixed"),   # untouched setting kept
+      isFALSE(s$outputs$figures$pca))             # untouched setting kept
+
 unlink(file.path(proj, "data", "raw", "d.csv"))
 settings_yaml("")
 check_error("an empty data/raw folder is reported", config(), "No data files found")
