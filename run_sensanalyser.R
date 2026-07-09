@@ -22,3 +22,6 @@ run_project("projects/example_study")
 
 # Batch run:
 # run_projects(c("projects/example_study", "projects/example_study_b"))
+
+# Converting an old project (project_config.R) to settings.yaml, once:
+# migrate_project("projects/your_project")

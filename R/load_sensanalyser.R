@@ -11,6 +11,7 @@ library(here)
 source(here::here("R", "core_engine.R"))
 source(here::here("R", "functions", "settings_helpers.R"))
 source(here::here("R", "functions", "project_helpers.R"))
+source(here::here("R", "functions", "migration_helpers.R"))
 
 #' Run one project
 #'
@@ -49,4 +50,14 @@ settings_summary <- function(project_dir) {
 #' @export
 create_project <- function(project_dir, ...) {
   sensanalyser_create_project(project_dir, ...)
+}
+
+#' Convert an old project (project_config.R + dictionary YAMLs) to settings.yaml
+#'
+#' Superseded files are renamed to `*.migrated`; nothing is deleted.
+#'
+#' @param project_dir Path to the project folder.
+#' @export
+migrate_project <- function(project_dir, ...) {
+  sensanalyser_migrate_project(project_dir, ...)
 }

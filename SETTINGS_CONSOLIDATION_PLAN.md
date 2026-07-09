@@ -209,17 +209,24 @@ are gated, via `sensanalyser_save_figures(config, kind)`. This also resolves
 the quirk noted under Phase A — `figures` is no longer a single flag that
 only really affected spider plots.
 
-### Phase C — Migration + new-project flow (~1 day)
-6. `sensanalyser_migrate_project(dir)` — reads existing
-   `project_config.R` + dictionary YAMLs + `analysis_config.yaml` and
-   writes a consolidated `settings.yaml`; renames superseded files to
-   `*.migrated` (nothing deleted). Run it on `example_study` and
-   `example_study_b` as the acceptance test.
-7. `sensanalyser_create_project()` writes the new template
-   (`settings.yaml` + folders only); its "Next steps" message becomes:
-   *drop data in `data/raw`, open `settings.yaml`, run `run_project()`*.
-8. Replace `master_mission_control.R` with the thin launcher (keep the old
-   file for one release with a pointer message).
+### Phase C — Migration + new-project flow — **DONE**
+6. ✅ `sensanalyser_migrate_project(dir)` (`R/functions/migration_helpers.R`)
+   reads `project_config.R` + `analysis_config.yaml` + the dictionary YAMLs
+   and writes one `settings.yaml`, retiring superseded files to `*.migrated`
+   (gitignored; nothing deleted). It reproduces the engine's own precedence
+   (saved selections fill in only when project_config left DVs unset), makes
+   data paths project-relative, and warns on obviously-broken saved
+   selections (a panelist listed as a factor is dropped; a single-attribute
+   DV list is flagged). Item 7 (create_project) landed in Phase B.
+7. ✅ `master_mission_control.R` is now a deprecation shim that forwards to
+   `run_sensanalyser.R` (kept for one release).
+8. ✅ Migrated `example_study` and `example_study_b`. **Acceptance test passed**:
+   `example_study` produces byte-identical `outputs/tables/` before and after
+   migration (15 files; `run_configuration_summary.csv` excluded as it records
+   paths/timestamps). `example_study_b`'s saved selections were genuinely broken (a
+   single non-sensory attribute `code`, panelist among the factors) - the
+   migration warned and its `attributes:` was set to `auto`.
+9. ✅ `tests/test_migration.R` (14 checks).
 
 ### Phase D — Interactive setup rewrite + polish (~1–2 days)
 9. Prompt answers write into `settings.yaml` (2.4); kill the hidden

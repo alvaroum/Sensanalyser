@@ -56,3 +56,6 @@ temp/
 # Local environment files. Never commit secrets or machine-specific settings.
 .env
 .Renviron.local
+
+# Migration safety copies (originals preserved in git history)
+*.migrated
