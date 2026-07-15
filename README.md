@@ -144,6 +144,14 @@ sensanalyser_install_all()
 
 This uses only base R, so it runs on a machine where nothing is installed yet.
 
+> **If some packages fail to install:** the bootstrap installs CRAN packages, but
+> a few need **system libraries** that R cannot install for you (for example
+> `svDialogs`/tcltk, or packages with compiled dependencies). On a bare operating
+> system these may fail. When that happens the bootstrap does **not** fail
+> silently — it names the packages it could not install and asks you to install
+> them manually. Install the missing system libraries first (e.g. with your OS
+> package manager: `apt`/`dnf` on Linux, or Homebrew on macOS), then run again.
+
 ## Legacy Files
 
 The older per-project `project_config.R` still works but is deprecated: any project without a `settings.yaml` falls back to its `project_config.R`. Convert old projects to a single `settings.yaml` with `migrate_project()` (see Quick start). The repo-root launcher is now `run_sensanalyser.R`.
