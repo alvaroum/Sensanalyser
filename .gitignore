@@ -74,3 +74,7 @@ AGENTS.md
 
 # Knowledge-graph tooling (local only)
 graphify-out/
+
+# Local analysis projects: never commit their data, settings, reports, or outputs.
+projects/*
+!projects/.gitkeep
