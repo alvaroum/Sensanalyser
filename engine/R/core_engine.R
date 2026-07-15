@@ -80,6 +80,16 @@
     }
   }
 
+  # 2b. Per-subset outputs (outputs/subsets/<name>/...). The roots above only
+  #     cover the general analysis.
+  if (!is.null(root)) {
+    subsets_dir <- file.path(root, "outputs", "subsets")
+    if (dir.exists(subsets_dir)) {
+      unlink(list.files(subsets_dir, full.names = TRUE), recursive = TRUE)
+      cleared <- c(cleared, subsets_dir)
+    }
+  }
+
   # 3. Cleaned data CSVs — resolved from the project root, not the run record.
   if (!is.null(root)) {
     clean_dir <- file.path(root, "data", "clean")

@@ -955,3 +955,139 @@ validate_variable_selections <- function(data, selections) {
     cat(row_str, "\n")
   }
 }
+
+# ---------------------------------------------------------------------------
+# GUIDED FIRST-RUN SETUP HELPERS
+# ---------------------------------------------------------------------------
+# Small console prompts used by .sensanalyser_interactive_setup() to walk a new
+# project through data, columns, model, and subsets. All degrade to readline in
+# headless sessions (no GUI dependency).
+
+#' Pick items from a list by number/range in the console.
+#' @keywords internal
+.interactive_pick_from <- function(choices, prompt, multi = TRUE, allow_empty = TRUE) {
+  if (length(choices) == 0) return(character(0))
+  repeat {
+    cat("\n"); cli::cli_rule(prompt)
+    .print_cols_grid(choices, width = 3, col_width = 32)
+    if (multi) {
+      cat("\n-> Enter numbers/ranges (e.g. '1,3', '5-20', '1,5-20')",
+          if (allow_empty) ", or press Enter to skip" else "", ":\n> ", sep = "")
+    } else {
+      cat("\n-> Enter one number:\n> ")
+    }
+    input <- trimws(readline())
+    if (!nzchar(input)) {
+      if (allow_empty) return(character(0))
+      cli::cli_alert_danger("A selection is required here."); next
+    }
+    idx <- .parse_selection_input(input, length(choices))
+    if (is.null(idx) || any(idx < 1 | idx > length(choices))) {
+      cli::cli_alert_danger("Invalid input. Use numbers or ranges within 1-{length(choices)}."); next
+    }
+    if (!multi) idx <- idx[1]
+    return(choices[idx])
+  }
+}
+
+#' Ask the user to choose a statistical model from the presets.
+#' @param presets Named list read from model_presets.yaml (name -> {description}).
+#' @return The chosen model_type (a preset name).
+#' @keywords internal
+.interactive_select_model <- function(presets) {
+  types <- names(presets)
+  cat("\n"); cli::cli_rule("Choose the statistical model")
+  for (i in seq_along(types)) {
+    d <- gsub("\\s+", " ", trimws(presets[[types[i]]]$description %||% ""))
+    cli::cli_text("{i}. {.strong {types[i]}} - {d}")
+  }
+  repeat {
+    cat("\n-> Enter the model number:\n> ")
+    n <- suppressWarnings(as.integer(trimws(readline())))
+    if (!is.na(n) && n >= 1 && n <= length(types)) {
+      cli::cli_alert_success("Model: {.strong {types[n]}}")
+      return(types[n])
+    }
+    cli::cli_alert_danger("Enter a number between 1 and {length(types)}.")
+  }
+}
+
+#' Show every column and let the user drop unwanted ones completely.
+#' @return Character vector of column names to exclude from all analyses.
+#' @keywords internal
+.interactive_remove_columns <- function(data) {
+  cli::cli_h2("Remove unwanted columns")
+  cli::cli_text(paste(
+    "Below are all columns in your data. Select any you want to drop completely",
+    "(e.g. notes, barcodes, blank columns). They are excluded from every analysis."
+  ))
+  chosen <- .interactive_pick_from(names(data), "Columns to remove (optional)",
+                                   multi = TRUE, allow_empty = TRUE)
+  if (length(chosen)) {
+    cli::cli_alert_info("Removing: {paste(chosen, collapse = ', ')}")
+  } else {
+    cli::cli_alert_info("Keeping all columns.")
+  }
+  chosen
+}
+
+#' Ask whether to analyse the whole dataset, subsets, or both; define subsets.
+#' @return list(scope = "general"|"subsets"|"both", subsets = named include-lists)
+#' @keywords internal
+.interactive_select_scope_and_subsets <- function(data, product_col) {
+  products <- sort(unique(as.character(data[[product_col]])))
+
+  cli::cli_h2("Analysis scope")
+  cli::cli_text("Analyse the whole dataset, only subsets of products, or both?")
+  cli::cli_text("1. general - whole dataset only")
+  cli::cli_text("2. subsets - only the product subsets you define")
+  cli::cli_text("3. both    - whole dataset AND subsets")
+  scope <- NULL
+  repeat {
+    cat("\n-> Enter 1, 2 or 3:\n> ")
+    n <- suppressWarnings(as.integer(trimws(readline())))
+    if (!is.na(n) && n %in% 1:3) { scope <- c("general", "subsets", "both")[n]; break }
+    cli::cli_alert_danger("Enter 1, 2 or 3.")
+  }
+
+  subsets <- list()
+  if (scope %in% c("subsets", "both")) {
+    repeat {
+      cat("\n-> Name for this subset (e.g. gluten_free):\n> ")
+      raw_name <- trimws(readline())
+      name <- gsub("[^a-z0-9]+", "_", tolower(raw_name))
+      name <- gsub("^_|_$", "", name)
+      if (!nzchar(name)) { cli::cli_alert_danger("Please enter a name."); next }
+      picked <- .interactive_pick_from(
+        products, sprintf("Products in subset '%s'", name),
+        multi = TRUE, allow_empty = FALSE
+      )
+      subsets[[name]] <- list(include = as.list(picked))
+      cli::cli_alert_success("Subset '{name}': {length(picked)} product(s).")
+      more <- utils::askYesNo("Define another subset?", default = FALSE)
+      if (!isTRUE(more)) break
+    }
+  }
+  list(scope = scope, subsets = subsets)
+}
+
+#' Write a products + attributes reference file (data_summary.yaml).
+#' @keywords internal
+.write_data_summary <- function(project_root, data, product_col, attributes) {
+  products <- if (!is.null(product_col) && product_col %in% names(data)) {
+    sort(unique(as.character(data[[product_col]])))
+  } else character(0)
+  summary <- list(
+    generated      = as.character(Sys.time()),
+    rows           = nrow(data),
+    product_column = product_col %||% "",
+    products       = as.list(products),
+    attributes     = as.list(as.character(attributes))
+  )
+  path <- file.path(project_root, "data_summary.yaml")
+  yaml::write_yaml(summary, path)
+  cli::cli_alert_success(
+    "Wrote {.path data_summary.yaml} ({length(products)} products, {length(attributes)} attributes)."
+  )
+  invisible(path)
+}

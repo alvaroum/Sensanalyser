@@ -25,9 +25,11 @@ create_project("projects/my_study")
 
 This builds the project folders and drops in a fully commented `settings.yaml`.
 
-### 2. Add your data and edit `settings.yaml`
+### 2. Add your data
 
-Copy your data files (`.csv`, `.tsv`, `.xlsx`, ...) into `projects/my_study/data/raw/`, then open `projects/my_study/settings.yaml`. Every option is documented inline; an empty file already runs a sensible analysis. A minimal example:
+Copy your data files (`.csv`, `.tsv`, `.xlsx`, ...) into `projects/my_study/data/raw/`. That is all you have to do before the first run — **the first run is a guided setup** (see step 3) that walks you through the rest and writes it into `settings.yaml` for you.
+
+Prefer to configure by hand instead? Open `projects/my_study/settings.yaml`; every option is documented inline, and an empty file already runs a sensible analysis. A minimal example:
 
 ```yaml
 data:
@@ -69,7 +71,28 @@ run_project("projects/my_study")
 # run_projects(c("projects/a", "projects/b"))   # several, in sequence
 ```
 
-That's it. Outputs land in `projects/my_study/outputs/` and never overwrite another project's.
+**The first run is guided.** It opens a file picker in your `data/raw` folder, then walks you through, one prompt at a time:
+
+1. **Pick the raw data file(s).**
+2. **Remove any columns** you don't want (barcodes, notes, blanks) — dropped from every analysis.
+3. **Choose the statistical model** from a menu of the available designs.
+4. **Choose the variables** — attributes, product column, panelist, design factors.
+5. **Choose the scope** — analyse the whole dataset (`general`), only product `subsets` you define (by selecting the products in each), or `both`.
+
+Every answer is written back into `settings.yaml` (with comments and edit examples), and a `data_summary.yaml` listing your products and attributes is saved. **After the first run nothing prompts again** — edit `settings.yaml` and re-run to change anything.
+
+Outputs are organised as:
+
+```
+projects/my_study/outputs/
+  general/            # whole-dataset results
+    tables/ figures/ diagnostics/ logs/
+  subsets/
+    <subset name>/    # one folder per subset
+      tables/ figures/ ...
+```
+
+They never overwrite another project's.
 
 ### Starting a project over
 

@@ -192,13 +192,22 @@ derived_attributes: {}
 
 # ─── 9. PRODUCT SUBSETS ───────────────────────────────────────────────────
 # Each entry re-runs the whole analysis on part of the products and writes to
-# its own outputs subfolder. Use include OR exclude, not both.
+# outputs/subsets/<name>/. Use include OR exclude, not both.
 subsets: {}
 # subsets:
 #   without_control:
 #     exclude: [Control]
 #   treated_only:
 #     include: [Treatment A, Treatment B]
+
+
+# ─── 9b. SCOPE ─────────────────────────────────────────────────────────────
+# Which analyses to run:
+#   general = the whole dataset only        -> outputs/general/
+#   subsets = only the subsets defined above -> outputs/subsets/<name>/
+#   both    = the whole dataset AND subsets
+# null (default) = "both" when subsets exist, otherwise "general".
+scope: null
 
 
 # ─── 10. ADVANCED ──────────────────────────────────────────────────────────

@@ -65,12 +65,22 @@
 #' @return Numeric p-value or NA_real_
 #' @keywords internal
 .get_omnibus_p <- function(results_model, outcome, omnibus_term) {
-  # Use .env$ to force right-hand side lookup in the calling environment rather
-  # than the dplyr data mask — otherwise `outcome` resolves to the column of
-  # the same name and the filter matches every row.
-  hit <- results_model %>%
-    dplyr::filter(.data$outcome == .env$outcome, .data$term == .env$omnibus_term)
-
+  if (is.null(results_model) || nrow(results_model) == 0 ||
+      !all(c("outcome", "term") %in% names(results_model))) {
+    return(NA_real_)
+  }
+  # Match interaction terms regardless of the order their components are written
+  # in (e.g. "product:session" vs "session:product"), which differs between the
+  # ANOVA table and the requested focal term.
+  norm <- function(t) vapply(
+    strsplit(as.character(t), ":", fixed = TRUE),
+    function(parts) paste(sort(trimws(parts)), collapse = ":"),
+    character(1)
+  )
+  hit <- results_model[
+    results_model$outcome == outcome & norm(results_model$term) == norm(omnibus_term),
+    , drop = FALSE
+  ]
   if (nrow(hit) == 0 || !"p" %in% names(hit)) return(NA_real_)
   suppressWarnings(as.numeric(hit$p[[1]]))
 }
@@ -139,18 +149,27 @@ create_compact_letter_display <- function(emm_grid, pairwise_tbl, spec, by = NUL
 #' @return Letter table with suppression columns
 #' @export
 suppress_non_significant_letters <- function(letters_tbl, omnibus_p, alpha = 0.05) {
-  omnibus_significant <- !is.na(omnibus_p) && omnibus_p < alpha
+  omnibus_known       <- !is.na(omnibus_p)
+  omnibus_significant <- omnibus_known && omnibus_p < alpha
 
-  letters_tbl %>%
-    dplyr::mutate(
-      omnibus_p = omnibus_p,
-      omnibus_significant = omnibus_significant,
-      letters_suppressed = !omnibus_significant,
-      .group = dplyr::if_else(!omnibus_significant, NA_character_, .data$.group),
-      suppression_reason = dplyr::if_else(!omnibus_significant,
-                                          "Omnibus term non-significant or unavailable",
-                                          NA_character_)
-    )
+  # Only suppress the compact-letter display when we positively know the omnibus
+  # factor is non-significant. If the omnibus p-value could not be located
+  # (NA — e.g. a term-name mismatch), keep the pairwise-derived letters rather
+  # than dropping them silently, which previously hid significant differences.
+  suppress <- isTRUE(omnibus_known && !omnibus_significant)
+
+  # A single omnibus p-value gates the whole table, so set the columns directly
+  # (avoids vctrs size-recycling issues with a scalar condition in if_else).
+  letters_tbl$omnibus_p           <- omnibus_p
+  letters_tbl$omnibus_significant <- omnibus_significant
+  letters_tbl$letters_suppressed  <- suppress
+  if (suppress) {
+    letters_tbl$.group             <- NA_character_
+    letters_tbl$suppression_reason <- "Omnibus term non-significant"
+  } else {
+    letters_tbl$suppression_reason <- NA_character_
+  }
+  letters_tbl
 }
 
 # ---------------------------------------------------------------------------

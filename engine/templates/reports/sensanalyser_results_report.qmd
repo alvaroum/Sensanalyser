@@ -70,11 +70,20 @@ project_root_candidates <- unique(normalizePath(
   c(getwd(), file.path(input_dir, ".."), input_dir),
   mustWork = FALSE
 ))
-project_root <- project_root_candidates[
-  file.exists(file.path(project_root_candidates, "outputs", "tables", "results_model.csv"))
-][1]
+# Outputs are foldered as outputs/general/... (current) but older projects used
+# outputs/... directly. Detect either so the report finds its tables.
+.outputs_leaf <- function(root) {
+  for (leaf in c(file.path("outputs", "general"), "outputs")) {
+    if (file.exists(file.path(root, leaf, "tables", "results_model.csv"))) return(leaf)
+  }
+  NA_character_
+}
+root_leaf <- vapply(project_root_candidates, .outputs_leaf, character(1))
+project_root <- project_root_candidates[!is.na(root_leaf)][1]
+outputs_leaf <- root_leaf[!is.na(root_leaf)][1]
 if (is.na(project_root)) {
-  stop("Could not locate project root containing outputs/tables/results_model.csv")
+  stop("Could not locate a project with outputs/general/tables/results_model.csv ",
+       "(or the legacy outputs/tables/results_model.csv).")
 }
 
 show_image_if_exists <- function(path, width = "100%") {
@@ -130,9 +139,9 @@ raw_to_label <- function(x) {
 }
 
 report_dir <- file.path(project_root, "reports")
-tables_dir <- file.path(project_root, "outputs", "tables")
-figures_dir <- file.path(project_root, "outputs", "figures")
-diagnostics_dir <- file.path(project_root, "outputs", "diagnostics")
+tables_dir <- file.path(project_root, outputs_leaf, "tables")
+figures_dir <- file.path(project_root, outputs_leaf, "figures")
+diagnostics_dir <- file.path(project_root, outputs_leaf, "diagnostics")
 
 results_model <- safe_read_csv(file.path(tables_dir, "results_model.csv"))
 report_wide <- safe_read_csv(file.path(tables_dir, "report_format_wide.csv"))

@@ -12,6 +12,10 @@ source(here::here("engine", "R", "core_engine.R"))
 source(here::here("engine", "R", "functions", "settings_helpers.R"))
 source(here::here("engine", "R", "functions", "project_helpers.R"))
 source(here::here("engine", "R", "functions", "migration_helpers.R"))
+# Needed by the guided first-run setup, which prompts before the pipeline (and
+# its own .source_all_helpers) runs. Harmless to load here too.
+source(here::here("engine", "R", "functions", "data_import_helpers.R"))
+source(here::here("engine", "R", "functions", "variable_selection_helpers.R"))
 
 #' Run one project
 #'

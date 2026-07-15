@@ -179,10 +179,10 @@ sensanalyser_reset_project <- function(project_dir, full = FALSE, ask = interact
     project_root = project_root,
     paths = list(
       analysis_config  = file.path(project_root, "data/dictionary/state/resolved_run.yaml"),
-      table_root       = file.path(project_root, "outputs/tables"),
-      figure_root      = file.path(project_root, "outputs/figures"),
-      diagnostics_root = file.path(project_root, "outputs/diagnostics"),
-      logs_root        = file.path(project_root, "outputs/logs"),
+      table_root       = file.path(project_root, "outputs/general/tables"),
+      figure_root      = file.path(project_root, "outputs/general/figures"),
+      diagnostics_root = file.path(project_root, "outputs/general/diagnostics"),
+      logs_root        = file.path(project_root, "outputs/general/logs"),
       report_template  = file.path(project_root, "reports/sensanalyser_results_report.qmd")
     )
   )
@@ -346,19 +346,90 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
 #' @param settings A list from [sensanalyser_load_settings()].
 #' @keywords internal
 .sensanalyser_run_settings <- function(settings) {
-  interactive_run <- isTRUE(settings$advanced$interactive_setup)
-  result <- .sensanalyser_run_config(sensanalyser_settings_to_config(settings))
-
-  # An interactive run resolved the data files and variables through console
-  # prompts; write those choices back into settings.yaml so the project is now
-  # fully specified and never prompts again.
-  if (interactive_run && !is.null(result$main) && !is.null(result$main$selections)) {
-    .sens_write_choices(
-      project_root = settings$project_root,
-      selections   = result$main$selections
-    )
+  # A first (interactive) run walks the user through data selection, column
+  # removal, model choice, variables and subset/scope, writes everything back
+  # into settings.yaml (+ a data_summary.yaml), then runs the pipeline from the
+  # completed settings. Later runs are fully specified and just run.
+  if (isTRUE(settings$advanced$interactive_setup)) {
+    return(invisible(.sensanalyser_interactive_setup(settings)))
   }
-  invisible(result)
+  invisible(.sensanalyser_run_config(sensanalyser_settings_to_config(settings)))
+}
+
+#' Guided first-run setup: prompt for everything, save it, then run.
+#'
+#' Walks a new project through: pick raw data (dialog opens in data/raw) ->
+#' remove unwanted columns -> choose the statistical model -> choose variables
+#' -> choose scope and define subsets. Writes a `data_summary.yaml` and a
+#' fully-commented `settings.yaml`, then runs the pipeline non-interactively
+#' from those settings (general and/or subsets). Later runs skip all of this.
+#'
+#' @param settings A settings list from [sensanalyser_load_settings()] with
+#'   `advanced$interactive_setup == TRUE`.
+#' @keywords internal
+.sensanalyser_interactive_setup <- function(settings) {
+  root <- settings$project_root
+  cli::cli_h1("Sensanalyser - guided project setup")
+
+  base_cfg <- sensanalyser_settings_to_config(settings)
+
+  # 1. Pick + load the raw data (picker opens in projects/<p>/data/raw).
+  start_dir <- file.path(root, "data", "raw")
+  paths <- .resolve_data_path(NULL, multiple = TRUE, start_dir = start_dir)
+  if (is.null(paths) || !nzchar(paths[[1]])) {
+    cli::cli_abort("No data file selected - setup cancelled.")
+  }
+  data <- load_sensanalyser_data(path = paths, interactive_setup = FALSE,
+                                 config = base_cfg)
+
+  # 2. Remove unwanted columns completely.
+  remove_cols <- .interactive_remove_columns(data)
+  if (length(remove_cols) > 0) {
+    data <- data[, setdiff(names(data), remove_cols), drop = FALSE]
+  }
+
+  # 3. Choose the statistical model.
+  presets <- tryCatch(yaml::read_yaml(base_cfg$paths$model_presets),
+                      error = function(e) NULL)
+  model_type <- if (!is.null(presets)) .interactive_select_model(presets) else settings$model$type
+
+  # 4. Choose variables (attributes / product / panelist / design columns),
+  #    reusing the existing model-aware selector.
+  sel_cfg <- base_cfg
+  sel_cfg$toggles$interactive_setup     <- TRUE
+  sel_cfg$analysis$model_type           <- model_type
+  sel_cfg$analysis$dependent_variables  <- NULL
+  sel_cfg$analysis$factors              <- NULL
+  sel_cfg$analysis$subject_id           <- NULL
+  selections  <- select_analysis_variables(data, sel_cfg)
+  product_col <- (selections$factors %||% character(0))[1]
+  attributes  <- selections$dependent_variables
+
+  # 5. Reference file with the product and attribute lists.
+  .write_data_summary(root, data, product_col, attributes)
+
+  # 6. Scope + subset definitions.
+  scope_res <- if (!is.null(product_col) && product_col %in% names(data)) {
+    .interactive_select_scope_and_subsets(data, product_col)
+  } else {
+    list(scope = "general", subsets = list())
+  }
+
+  # 7. Save everything into a commented settings.yaml (turns interactivity off).
+  .sens_write_choices(
+    project_root = root,
+    selections   = selections,
+    data_files   = paths,
+    model_type   = model_type,
+    exclude      = remove_cols,
+    scope        = scope_res$scope,
+    subsets      = scope_res$subsets
+  )
+
+  # 8. Reload the now-complete settings and run non-interactively.
+  cli::cli_h1("Running the analysis with your choices")
+  settings2 <- sensanalyser_load_settings(root)
+  invisible(.sensanalyser_run_config(sensanalyser_settings_to_config(settings2)))
 }
 
 #' Run the main pipeline followed by any product subsets
@@ -373,13 +444,26 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
   subsets <- final_config$product_subsets
   final_config$product_subsets <- NULL
 
-  main_state <- run_sensanalyser_pipeline(final_config)
+  # Which analyses to run. Absent (legacy project_config.R path) -> "both".
+  scope <- final_config$analysis_scope %||% "both"
+  run_general <- scope %in% c("general", "both")
+  run_subsets <- scope %in% c("subsets", "both")
+
+  # outputs/subsets/<name>/... sits beside outputs/general/... The general
+  # roots look like <root>/outputs/general/tables, so the shared outputs base
+  # is two levels up and each leaf ("tables", "figures", ...) is the basename.
+  outputs_base <- dirname(dirname(final_config$paths$table_root))
+  subset_root  <- function(path, name) {
+    file.path(outputs_base, "subsets", name, basename(path))
+  }
+
+  main_state <- if (run_general) run_sensanalyser_pipeline(final_config) else NULL
 
   # ── PRODUCT SUBSET ANALYSES ──────────────────────────────────────────────
   # Each named entry reruns the full pipeline on a filtered dataset and writes
-  # its outputs to a dedicated subfolder, so subset results never overwrite
-  # the main analysis outputs.
-  if (!is.null(subsets) && length(subsets) > 0) {
+  # its outputs to outputs/subsets/<name>/, so subset results never overwrite
+  # the general analysis outputs.
+  if (run_subsets && !is.null(subsets) && length(subsets) > 0) {
 
     # A settings.yaml run already carries every selection, so it needs no
     # saved YAML to reproduce them for the subsets.
@@ -408,16 +492,25 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
           subset_config$analysis$dependent_variables <- NULL
         }
 
-        # Redirect all outputs to a dedicated subfolder.
-        subset_config$paths$table_root       <- file.path(final_config$paths$table_root,       subset_name)
-        subset_config$paths$figure_root      <- file.path(final_config$paths$figure_root,      subset_name)
-        subset_config$paths$diagnostics_root <- file.path(final_config$paths$diagnostics_root, subset_name)
-        subset_config$paths$logs_root        <- file.path(final_config$paths$logs_root,        subset_name)
+        # Redirect all outputs to outputs/subsets/<name>/...
+        subset_config$paths$table_root       <- subset_root(final_config$paths$table_root,       subset_name)
+        subset_config$paths$figure_root      <- subset_root(final_config$paths$figure_root,      subset_name)
+        subset_config$paths$diagnostics_root <- subset_root(final_config$paths$diagnostics_root, subset_name)
+        subset_config$paths$logs_root        <- subset_root(final_config$paths$logs_root,        subset_name)
 
         # Attach the filter definition so core_engine applies it after data load.
         subset_config$product_subset <- c(subset_def, list(label = subset_name))
 
-        run_sensanalyser_pipeline(subset_config)
+        # A single bad subset (e.g. too few products for clustering) must not
+        # abort the general analysis or the other subsets.
+        tryCatch(
+          run_sensanalyser_pipeline(subset_config),
+          error = function(e) {
+            cli::cli_alert_danger(
+              "Subset '{subset_name}' failed and was skipped: {conditionMessage(e)}"
+            )
+          }
+        )
       }
     }
   }

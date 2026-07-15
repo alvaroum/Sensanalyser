@@ -67,9 +67,13 @@ load_sensanalyser_data <- function(
     config            = NULL) {
 
   # Resolve file paths ---------------------------------------------------------
+  # Open the picker in the project's data/raw folder when we know the project.
+  start_dir <- if (!is.null(config) && !is.null(config$project_root)) {
+    file.path(config$project_root, "data", "raw")
+  } else NULL
   if (interactive_setup && is.null(path)) {
     while (TRUE) {
-      resolved_path <- .resolve_data_path(NULL, multiple = TRUE)
+      resolved_path <- .resolve_data_path(NULL, multiple = TRUE, start_dir = start_dir)
       if (is.null(resolved_path) || !nzchar(resolved_path[1])) {
         abort_choice <- utils::askYesNo("No file selected. Do you want to abort the pipeline?", default = TRUE)
         if (isTRUE(abort_choice) || is.na(abort_choice)) {
@@ -307,16 +311,21 @@ load_sensanalyser_data <- function(
 #'   5. Console readline fallback (headless / CI environments)
 #'
 #' @keywords internal
-.resolve_data_path <- function(path, multiple = FALSE) {
+.resolve_data_path <- function(path, multiple = FALSE, start_dir = NULL) {
   if (!is.null(path)) {
     return(normalizePath(path, mustWork = FALSE))
   }
 
+  # Where the dialog should open. Defaults to the project's data/raw folder so
+  # the user starts exactly where their raw files live.
+  if (!is.null(start_dir) && !dir.exists(start_dir)) start_dir <- NULL
+
   cli::cli_alert_info("No data file specified. Please select one now.")
+  if (!is.null(start_dir)) cli::cli_alert_info("Opening in {.path {start_dir}}.")
 
   # 1. Native macOS AppleScript Dialog — very robust on macOS, works in RStudio/Positron/Terminal
   if (identical(Sys.info()[["sysname"]], "Darwin")) {
-    selected <- .choose_file_macos(multiple = multiple)
+    selected <- .choose_file_macos(multiple = multiple, start_dir = start_dir)
     if (!is.null(selected) && all(nzchar(selected))) return(selected)
   }
 
@@ -325,6 +334,7 @@ load_sensanalyser_data <- function(
     selected <- tryCatch(
       rstudioapi::selectFile(
         caption  = "Select Sensory Data File",
+        path     = if (!is.null(start_dir)) start_dir else rstudioapi::getActiveProject(),
         filter   = "Data Files (*.csv *.tsv *.txt *.xlsx *.xls)",
         existing = TRUE
       ),
@@ -346,6 +356,7 @@ load_sensanalyser_data <- function(
       tcltk::tk_choose.files(
         caption = "Select Sensory Data File",
         multi   = multiple,
+        default = if (!is.null(start_dir)) file.path(start_dir, "") else "",
         filters = matrix(
           c("Data files", "*.csv *.tsv *.txt *.xlsx *.xls",
             "All files",  "*"),
@@ -393,19 +404,24 @@ load_sensanalyser_data <- function(
 #' Native macOS file picker helper using AppleScript
 #'
 #' @keywords internal
-.choose_file_macos <- function(multiple = FALSE) {
+.choose_file_macos <- function(multiple = FALSE, start_dir = NULL) {
+  # AppleScript can open the dialog at a given folder via `default location`.
+  loc <- if (!is.null(start_dir) && dir.exists(start_dir)) {
+    sprintf(' default location (POSIX file "%s")', normalizePath(start_dir))
+  } else ""
+
   if (multiple) {
-    script <- '
-    set fileList to choose file with prompt "Select Sensory Data File(s)" multiple selections allowed true
+    script <- sprintf('
+    set fileList to choose file with prompt "Select Sensory Data File(s)"%s multiple selections allowed true
     set posixPaths to {}
     repeat with aFile in fileList
       set end of posixPaths to POSIX path of aFile
     end repeat
     set AppleScript\'s text item delimiters to "\n"
     return posixPaths as string
-    '
+    ', loc)
   } else {
-    script <- 'POSIX path of (choose file with prompt "Select Sensory Data File")'
+    script <- sprintf('POSIX path of (choose file with prompt "Select Sensory Data File"%s)', loc)
   }
   tryCatch({
     res <- system2(

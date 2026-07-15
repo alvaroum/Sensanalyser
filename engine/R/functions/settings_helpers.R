@@ -134,6 +134,11 @@ sensanalyser_default_settings <- function() {
 
     subsets = list(),                  # free-form: name -> include/exclude
 
+    # Which analyses to run: "general" (whole dataset only), "subsets" (only the
+    # subsets below) or "both". NULL = auto: "both" when subsets exist, else
+    # "general". Chosen in interactive setup.
+    scope = NULL,
+
     advanced = list(
       interactive_setup            = FALSE,
       discover_variables           = FALSE,
@@ -159,6 +164,7 @@ sensanalyser_default_settings <- function() {
     "model.type" = c("one_way_anova", "two_way_anova", "three_way_anova",
                      "one_way_repeated", "two_way_repeated", "two_way_mixed",
                      "three_way_repeated", "linear_mixed_model"),
+    "scope" = c("general", "subsets", "both"),
     "model.posthoc.method" = c("tukey", "bonferroni", "lsd"),
     "outliers.policy" = c("keep_all", "remove_extreme", "remove_all"),
     "outliers.action" = c("set_na", "drop_row"),
@@ -513,54 +519,140 @@ sensanalyser_load_settings <- function(project_dir) {
 #'   (`pipeline_state$selections`).
 #' @return The settings path, invisibly.
 #' @keywords internal
-.sens_write_choices <- function(project_root, selections) {
+.sens_write_choices <- function(project_root, selections,
+                                data_files = NULL, model_type = NULL,
+                                exclude = NULL, scope = NULL, subsets = NULL) {
   path <- sensanalyser_settings_path(project_root)
-  if (!file.exists(path)) return(invisible(path))
 
-  user <- tryCatch(yaml::read_yaml(path), error = function(e) NULL)
-  if (is.null(user)) user <- list()
+  # Start from the fully-merged current settings so every section is present
+  # for the commented render, then overwrite with the interactive choices.
+  full <- tryCatch(sensanalyser_load_settings(project_root),
+                   error = function(e) sensanalyser_default_settings())
+  full$project_root <- NULL
 
   as_list <- function(x) {
-    x <- x[!is.na(x) & nzchar(as.character(x))]
-    if (length(x) == 0) list() else as.list(as.character(x))
+    x <- as.character(x)
+    x <- x[!is.na(x) & nzchar(x)]
+    if (length(x) == 0) list() else as.list(x)
+  }
+  # Make data paths project-relative when they live inside the project.
+  rel <- function(p) {
+    p <- normalizePath(p, mustWork = FALSE)
+    r <- normalizePath(project_root, mustWork = FALSE)
+    ifelse(startsWith(p, paste0(r, .Platform$file.sep)), substring(p, nchar(r) + 2), p)
   }
 
-  # Data files are not chosen interactively in settings mode (data.files
-  # already resolves to concrete paths), so `auto` is left untouched here.
+  # ── data ──────────────────────────────────────────────────────────────────
+  if (length(data_files) > 0) full$data$files <- as_list(rel(data_files))
 
-  # ── variables ────────────────────────────────────────────────────────────
+  # ── variables ───────────────────────────────────────────────────────────
   dvs <- selections$dependent_variables
-  if (length(dvs) > 0) user$variables$attributes <- as_list(dvs)
+  if (length(dvs) > 0) full$variables$attributes <- as_list(dvs)
+  full$variables$exclude <- as_list(exclude)
   factors <- as.character(selections$factors)
   if (length(factors) > 0) {
-    user$variables$product <- factors[[1]]
-    user$variables$extra_factors <- as_list(factors[-1])
+    full$variables$product       <- factors[[1]]
+    full$variables$extra_factors <- as_list(factors[-1])
   }
   if (length(selections$subject_id) > 0) {
-    user$variables$panelist <- as.character(selections$subject_id)[[1]]
+    full$variables$panelist <- as.character(selections$subject_id)[[1]]
   }
 
-  # ── model design columns ─────────────────────────────────────────────────
-  user$model$random_effects    <- as_list(selections$random_effects)
-  user$model$repeated_measures <- as_list(selections$repeated_measures_factors)
+  # ── model ────────────────────────────────────────────────────────────────
+  if (!is.null(model_type) && nzchar(model_type)) full$model$type <- model_type
+  full$model$random_effects    <- as_list(selections$random_effects)
+  full$model$repeated_measures <- as_list(selections$repeated_measures_factors)
+
+  # ── scope + subsets ──────────────────────────────────────────────────────
+  if (!is.null(scope) && nzchar(scope)) full$scope <- scope
+  if (!is.null(subsets)) full$subsets <- subsets
 
   # ── stop prompting next time ─────────────────────────────────────────────
-  user$advanced$interactive_setup <- FALSE
+  full$advanced$interactive_setup <- FALSE
 
-  header <- c(
+  writeLines(.sens_render_commented_settings(full), path)
+  cli::cli_alert_success(
+    "Saved your choices into {.path settings.yaml} with comments (interactive setup off)."
+  )
+  invisible(path)
+}
+
+# Render a settings list to a commented, editable settings.yaml (character
+# vector of lines). The sections a user tunes most get an explanatory comment
+# block with an edit example; the rest are emitted as valid YAML below.
+.sens_render_commented_settings <- function(full) {
+  emit <- function(key, value) {
+    y <- yaml::as.yaml(stats::setNames(list(value), key), indent = 2)
+    strsplit(sub("\n+$", "", y), "\n", fixed = TRUE)[[1]]
+  }
+
+  L <- c(
     "# ==========================================================================",
     "# SENSANALYSER PROJECT SETTINGS",
     "# ==========================================================================",
     "#",
-    paste0("# Variable selections written from an interactive run on ", format(Sys.Date()), "."),
-    "# interactive_setup was turned off so future runs reproduce these choices.",
-    "# Every option is documented in templates/settings.yaml.",
-    "# --------------------------------------------------------------------------",
-    ""
+    paste0("# Written by the guided setup on ", format(Sys.Date()), "."),
+    "# interactive_setup is now off, so future runs reproduce these choices.",
+    "# Edit any value below and re-run; every option is documented in",
+    "# engine/templates/settings.yaml.",
+    "#"
   )
-  writeLines(c(header, strsplit(.sens_as_yaml(user), "\n", fixed = TRUE)[[1]]), path)
-  cli::cli_alert_success("Saved your choices into {.path settings.yaml} (interactive setup turned off).")
-  invisible(path)
+
+  add <- function(lines, comments = character(0)) {
+    L <<- c(L, "", comments, lines)
+  }
+
+  add(emit("project", full$project), c(
+    "# ── Project ──────────────────────────────────────────────────────────────"
+  ))
+  add(emit("data", full$data), c(
+    "# ── Data ─────────────────────────────────────────────────────────────────",
+    "# files: the raw data file(s) to load. `auto` = every file in data/raw.",
+    "#   Example: files: [data/raw/QDA.xlsx]"
+  ))
+  add(emit("variables", full$variables), c(
+    "# ── Variables ────────────────────────────────────────────────────────────",
+    "# attributes    : sensory attributes to analyse",
+    "# exclude       : columns dropped completely from every analysis",
+    "# product       : the product / sample column",
+    "# panelist      : the assessor column (or null)",
+    "# extra_factors : extra design factors, e.g. [session]",
+    "#   Example: to also analyse 'aftertaste', add it under attributes."
+  ))
+  add(emit("model", full$model), c(
+    "# ── Model ────────────────────────────────────────────────────────────────",
+    "# type: the statistical model. One of one_way_anova, two_way_anova,",
+    "#   three_way_anova, one_way_repeated, two_way_repeated, two_way_mixed,",
+    "#   three_way_repeated, linear_mixed_model.",
+    "#   Example: set posthoc.run: true to add pairwise comparisons."
+  ))
+  add(emit("scope", full$scope %||% "general"), c(
+    "# ── Scope ────────────────────────────────────────────────────────────────",
+    "# Which analyses to run: general (whole dataset), subsets (only the",
+    "# subsets below), or both.",
+    "#   Example: scope: both"
+  ))
+  add(emit("subsets", full$subsets), c(
+    "# ── Subsets ──────────────────────────────────────────────────────────────",
+    "# Each named subset re-runs the whole analysis on part of the products and",
+    "# writes to outputs/subsets/<name>/. Use include: [..] to keep only those",
+    "# products, or exclude: [..] to drop them.",
+    "#   Example:",
+    "#   subsets:",
+    "#     without_control:",
+    "#       exclude: [Control]"
+  ))
+
+  rest_keys <- setdiff(names(full),
+                       c("project", "data", "variables", "model", "scope", "subsets"))
+  rest <- full[rest_keys]
+  add(
+    strsplit(sub("\n+$", "", yaml::as.yaml(rest, indent = 2)), "\n", fixed = TRUE)[[1]],
+    c("# ── Everything else (outliers, multivariate, outputs, labels, advanced) ──",
+      "# Sensible defaults; edit as needed - see engine/templates/settings.yaml.")
+  )
+
+  L
 }
 
 # ---------------------------------------------------------------------------
@@ -711,10 +803,12 @@ sensanalyser_settings_to_config <- function(settings) {
       report_template     = .sens_engine_asset(root, "reports/sensanalyser_results_report.qmd",
                                                "engine/templates/reports/sensanalyser_results_report.qmd"),
       derived_data        = file.path(root, "data/processed/derived_attribute_dataset.csv"),
-      table_root          = file.path(root, "outputs/tables"),
-      figure_root         = file.path(root, "outputs/figures"),
-      diagnostics_root    = file.path(root, "outputs/diagnostics"),
-      logs_root           = file.path(root, "outputs/logs")
+      # Whole-dataset ("general") outputs are foldered so they sit alongside the
+      # per-subset outputs (outputs/subsets/<name>/...) instead of loose in outputs/.
+      table_root          = file.path(root, "outputs/general/tables"),
+      figure_root         = file.path(root, "outputs/general/figures"),
+      diagnostics_root    = file.path(root, "outputs/general/diagnostics"),
+      logs_root           = file.path(root, "outputs/general/logs")
     ),
 
     toggles = list(
@@ -792,6 +886,14 @@ sensanalyser_settings_to_config <- function(settings) {
     report_options = list(output_formats = settings$outputs$report_formats),
 
     product_subsets = settings$subsets,
+    # Effective scope: honour an explicit setting, else "both" when subsets are
+    # defined (preserves legacy behaviour) and "general" otherwise.
+    analysis_scope  = {
+      s <- settings$scope
+      if (is.null(s) || !nzchar(as.character(s))) {
+        if (length(settings$subsets) > 0) "both" else "general"
+      } else as.character(s)
+    },
     project_root    = root,
 
     # Tells the engine that settings.yaml is authoritative, so a stale
