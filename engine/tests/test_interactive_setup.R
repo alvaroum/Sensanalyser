@@ -20,6 +20,19 @@ askYesNo <- function(msg, default = FALSE) { .YI <<- .YI + 1; if (.YI <= length(
 assignInNamespace("askYesNo", askYesNo, ns = "utils")
 
 # --- helpers ---
+ok(exists("sensanalyser_clean_raw_excel", mode = "function"),
+   "guided setup loads QDA cleaning helpers before importing data")
+
+no_numeric_error <- tryCatch({
+  .interactive_select_columns(
+    data.frame(product = c("A", "B"), notes = c("x", "y")),
+    role = "dependent_variables"
+  )
+  NULL
+}, error = function(e) conditionMessage(e))
+ok(!is.null(no_numeric_error) && grepl("No numeric dependent-variable columns", no_numeric_error),
+   "dependent-variable selection explains an empty numeric candidate list")
+
 feed("1,3")
 ok(identical(.interactive_pick_from(c("a","b","c","d"), "p"), c("a","c")), "pick_from numbers+range")
 feed("")

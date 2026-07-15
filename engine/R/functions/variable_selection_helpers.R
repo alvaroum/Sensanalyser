@@ -522,6 +522,17 @@ select_analysis_variables <- function(data, config) {
     cols <- cols[sapply(data, is.numeric)]
     # Exclude common design/metadata columns
     cols <- .filter_sensory_attributes(cols)
+
+    # Do not pass an empty candidate list to the console grid. This commonly
+    # means that a raw QDA export was imported without its cleaning step, so
+    # score columns are still character data rather than numeric attributes.
+    if (length(cols) == 0) {
+      cli::cli_abort(c(
+        "No numeric dependent-variable columns were found after import.",
+        "i" = "Check that the selected file contains numeric sensory scores.",
+        "i" = "For a QDA Excel export, use the guided setup so Sensanalyser can clean its headers and product codes before variable selection."
+      ))
+    }
   }
 
   label <- .get_slot_description(role, model_type)

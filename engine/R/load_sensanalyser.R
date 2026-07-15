@@ -13,7 +13,10 @@ source(here::here("engine", "R", "functions", "settings_helpers.R"))
 source(here::here("engine", "R", "functions", "project_helpers.R"))
 source(here::here("engine", "R", "functions", "migration_helpers.R"))
 # Needed by the guided first-run setup, which prompts before the pipeline (and
-# its own .source_all_helpers) runs. Harmless to load here too.
+# its own .source_all_helpers) runs.  Load the QDA cleaner before the importer:
+# otherwise a new project's first Excel import falls back to the uncleaned
+# worksheet and dependent-variable selection sees raw headers/character scores.
+source(here::here("engine", "R", "functions", "data_cleaning_helpers.R"))
 source(here::here("engine", "R", "functions", "data_import_helpers.R"))
 source(here::here("engine", "R", "functions", "variable_selection_helpers.R"))
 
