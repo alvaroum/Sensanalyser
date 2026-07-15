@@ -120,7 +120,7 @@ Design rules:
 settings in it**:
 
 ```r
-source(here::here("R", "load_sensanalyser.R"))
+source(here::here("engine", "R", "load_sensanalyser.R"))
 run_project("projects/example_study")
 # run_projects(c("projects/a", "projects/b"))   # batch runs
 ```

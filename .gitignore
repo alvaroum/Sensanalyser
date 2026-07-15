@@ -59,3 +59,18 @@ temp/
 
 # Migration safety copies (originals preserved in git history)
 *.migrated
+
+# AI coding-agent artefacts (never publish these)
+.claude/
+CLAUDE.md
+AGENTS.md
+.codex/
+.codexignore
+.cursor/
+.cursorrules
+.aider*
+.github/copilot-instructions.md
+.mcp.json
+
+# Knowledge-graph tooling (local only)
+graphify-out/

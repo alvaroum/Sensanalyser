@@ -8,10 +8,10 @@
 
 library(here)
 
-source(here::here("R", "core_engine.R"))
-source(here::here("R", "functions", "settings_helpers.R"))
-source(here::here("R", "functions", "project_helpers.R"))
-source(here::here("R", "functions", "migration_helpers.R"))
+source(here::here("engine", "R", "core_engine.R"))
+source(here::here("engine", "R", "functions", "settings_helpers.R"))
+source(here::here("engine", "R", "functions", "project_helpers.R"))
+source(here::here("engine", "R", "functions", "migration_helpers.R"))
 
 #' Run one project
 #'

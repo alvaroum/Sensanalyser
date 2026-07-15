@@ -16,7 +16,7 @@
 #   create_project("projects/my_new_study")      # new project folder
 # ==========================================================================
 
-source(here::here("R", "load_sensanalyser.R"))
+source(here::here("engine", "R", "load_sensanalyser.R"))
 
 run_project("projects/example_study")
 

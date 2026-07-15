@@ -10,6 +10,62 @@
 # INTERNAL HELPERS
 # ---------------------------------------------------------------------------
 
+#' Resolve one colour per group, honouring a fixed colour map
+#'
+#' Starts from the Brewer palette (assigned in group order) and then overrides
+#' with any colours the user pinned. `color_map` may be:
+#' \itemize{
+#'   \item a named vector/list \code{c("Control" = "#E41A1C")} — matched by group
+#'     display name, so a product keeps its colour across every chart; or
+#'   \item an unnamed vector — applied positionally in group order.
+#' }
+#' Unmapped groups fall back to the palette.
+#'
+#' @keywords internal
+.resolve_spider_colors <- function(group_rows, color_map, palette_name) {
+  n <- length(group_rows)
+  base <- RColorBrewer::brewer.pal(min(8, max(3, n)), palette_name)
+  base <- if (n > length(base)) grDevices::colorRampPalette(base)(n) else base[seq_len(n)]
+  out  <- stats::setNames(base, group_rows)
+
+  if (!is.null(color_map) && length(color_map) > 0) {
+    color_map <- unlist(color_map)
+    if (!is.null(names(color_map)) && any(nzchar(names(color_map)))) {
+      hit <- intersect(names(color_map), group_rows)
+      out[hit] <- color_map[hit]
+    } else {
+      k <- min(length(color_map), n)
+      out[seq_len(k)] <- color_map[seq_len(k)]
+    }
+  }
+  unname(out[group_rows])
+}
+
+#' Build the radial axis tick labels
+#'
+#' fmsb's `axistype = 1` default labels the rings as percent of the axis range
+#' (`"25 (%)"`, ...), which rarely matches a sensory scale. This returns explicit
+#' ring labels instead.
+#' \itemize{
+#'   \item \code{mode = "value"} — the actual scale values from min to max
+#'     (e.g. 0, 3, 6, 9, 12, 15), with \code{unit} appended.
+#'   \item \code{mode = "percent"} — NULL, so fmsb keeps its 0-100% default.
+#'   \item \code{mode = "none"} — blank labels.
+#' }
+#'
+#' @keywords internal
+.spider_axis_labels <- function(scale_min, scale_max, steps, mode = "value", unit = "") {
+  if (identical(mode, "percent")) return(NULL)
+  if (identical(mode, "none"))    return(rep("", steps + 1))
+  vals <- seq(scale_min, scale_max, length.out = steps + 1)
+  txt  <- if (isTRUE(all.equal(vals, round(vals)))) {
+    format(round(vals))
+  } else {
+    format(round(vals, 1), nsmall = 1)
+  }
+  paste0(trimws(txt), unit)
+}
+
 #' Determine which outcomes to include in spider plots
 #'
 #' @param selections Variable selection list
@@ -169,6 +225,17 @@ create_spider_plot_data <- function(data,
 #' @param width Plot width in inches
 #' @param height Plot height in inches
 #' @param dpi Resolution
+#' @param label_size Optional relative size (cex) of the axis labels. NULL auto-
+#'   scales down as the number of axes grows so long labels stay legible.
+#' @param show_legend Legend control: "auto" (hidden for a single group), TRUE
+#'   or FALSE.
+#' @param color_map Optional fixed colours. A named vector keyed by group display
+#'   name pins a colour per product across charts; an unnamed vector is applied in
+#'   group order. Unmapped groups fall back to the palette.
+#' @param axis_labels Radial tick labels: "value" (actual scale values),
+#'   "percent" (fmsb's 0-100% default) or "none".
+#' @param axis_unit String appended to each value label, e.g. "%" or " cm".
+#' @param axis_steps Number of rings / axis segments (default 4).
 #' @return Output path (invisibly)
 #' @export
 plot_spider_profiles <- function(spider_data,
@@ -177,17 +244,24 @@ plot_spider_profiles <- function(spider_data,
                                  title        = "Sensory Profile",
                                  width        = 9,
                                  height       = 7,
-                                 dpi          = 300) {
+                                 dpi          = 300,
+                                 label_size   = NULL,
+                                 show_legend  = "auto",
+                                 color_map    = NULL,
+                                 axis_labels  = "value",
+                                 axis_unit    = "",
+                                 axis_steps   = 4) {
   radar_data <- spider_data$radar_data
   group_rows <- rownames(radar_data)[-(1:2)]
   n_groups   <- length(group_rows)
 
-  colors <- RColorBrewer::brewer.pal(min(8, max(3, n_groups)), palette_name)
-  if (n_groups > length(colors)) {
-    colors <- grDevices::colorRampPalette(colors)(n_groups)
-  } else {
-    colors <- colors[seq_len(n_groups)]
-  }
+  # Only draw a legend when it adds information: a single-group chart is already
+  # named by its title, and its lone legend entry just collides with the axis
+  # labels at the bottom vertex.
+  legend_on <- if (identical(show_legend, "auto")) n_groups > 1 else isTRUE(show_legend)
+
+  # Fixed per-group colours (stable across charts) fall back to the palette.
+  colors <- .resolve_spider_colors(group_rows, color_map, palette_name)
 
   dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
 
@@ -218,6 +292,19 @@ plot_spider_profiles <- function(spider_data,
     return(invisible(output_path))
   }
 
+  # Wrap long attribute labels onto two lines so neighbouring axes don't collide.
+  n_axes  <- ncol(radar_data)
+  vlabels <- vapply(
+    colnames(radar_data),
+    function(lbl) paste(strwrap(lbl, width = 16), collapse = "\n"),
+    character(1)
+  )
+
+  # Auto-scale label size: shrink as axes get crowded, unless overridden.
+  vlcex <- if (!is.null(label_size) && is.finite(label_size)) {
+    label_size
+  } else if (n_axes <= 8) 0.9 else if (n_axes <= 14) 0.75 else 0.65
+
   grDevices::png(output_path, width = width, height = height, units = "in", res = dpi)
   old_par <- graphics::par(no.readonly = TRUE)
   on.exit({
@@ -225,32 +312,56 @@ plot_spider_profiles <- function(spider_data,
     grDevices::dev.off()
   }, add = TRUE)
 
-  graphics::par(mar = c(2, 2, 3, 2))
+  # Give the wrapped outer labels breathing room; reserve extra bottom space
+  # only when a legend is actually drawn there.
+  graphics::par(mar = c(if (legend_on) 4.5 else 3, 3, 3.5, 3))
+
+  # Radial tick labels reflect the actual scale (min..max) rather than fmsb's
+  # default 0-100% of the range.
+  caxislabels <- .spider_axis_labels(
+    spider_data$scale_min, spider_data$scale_max, axis_steps, axis_labels, axis_unit
+  )
 
   fmsb::radarchart(
     radar_data,
-    axistype   = 1,
-    pcol       = colors,
-    pfcol      = scales::alpha(colors, 0.25),
-    plwd       = 2,
-    plty       = 1,
-    cglcol     = "grey80",
-    cglty      = 1,
-    cglwd      = 0.8,
-    axislabcol = "grey40",
-    vlcex      = 0.8,
-    title      = title
+    axistype    = 1,
+    seg         = axis_steps,
+    caxislabels = caxislabels,
+    calcex      = 0.8,
+    vlabels     = vlabels,
+    pcol        = colors,
+    pfcol       = scales::alpha(colors, 0.25),
+    plwd        = 2,
+    plty        = 1,
+    cglcol      = "grey80",
+    cglty       = 1,
+    cglwd       = 0.8,
+    axislabcol  = "grey40",
+    vlcex       = vlcex,
+    title       = title
   )
 
-  graphics::legend(
-    "bottom",
-    legend = group_rows,
-    horiz  = TRUE,
-    bty    = "n",
-    pch    = 15,
-    col    = colors,
-    cex    = 0.8
-  )
+  if (legend_on) {
+    # Sit the legend just below the bottom axis label (fmsb draws on a roughly
+    # [-1.2, 1.2] square) so it never overlaps the attribute labels. A single row
+    # reads best for a few groups; stack into columns once there are many.
+    legend_args <- list(
+      x      = 0, y = -1.28,
+      xjust  = 0.5, yjust = 1,
+      legend = group_rows,
+      bty    = "n",
+      pch    = 15,
+      col    = colors,
+      cex    = 0.75,
+      xpd    = TRUE
+    )
+    if (n_groups <= 4) {
+      legend_args$horiz <- TRUE
+    } else {
+      legend_args$ncol <- ceiling(n_groups / 2)
+    }
+    do.call(graphics::legend, legend_args)
+  }
 
   invisible(output_path)
 }
@@ -312,6 +423,16 @@ run_figure_phase <- function(data, selections, config, posthoc_result = NULL) {
   dpi          <- config$fig_options$dpi;          if (is.null(dpi)          || is.na(dpi))          dpi          <- 300
   palette_name <- config$fig_options$palette;      if (is.null(palette_name) || !nzchar(palette_name)) palette_name <- "Set1"
   top_n        <- config$fig_options$top_n_attributes
+  label_size   <- config$fig_options$spider_label_size
+  legend_opt   <- config$fig_options$spider_legend; if (is.null(legend_opt)) legend_opt <- "auto"
+  global_colors <- config$fig_options$spider_colors   # named product -> colour
+
+  # Axis scale + units (NULL scale_max = auto-fit each chart).
+  scale_min_g  <- config$fig_options$spider_scale_min;  if (is.null(scale_min_g)) scale_min_g <- 0
+  scale_max_g  <- config$fig_options$spider_scale_max
+  axis_labels  <- config$fig_options$spider_axis_labels; if (is.null(axis_labels) || !nzchar(axis_labels)) axis_labels <- "value"
+  axis_unit    <- config$fig_options$spider_axis_unit;   if (is.null(axis_unit)) axis_unit <- ""
+  axis_steps   <- config$fig_options$spider_axis_steps;  if (is.null(axis_steps) || is.na(axis_steps)) axis_steps <- 4
 
   # Determine outcome pool (all DVs / explicit list / significant only)
   outcomes <- .get_spider_outcomes(selections, config, posthoc_result)
@@ -333,9 +454,36 @@ run_figure_phase <- function(data, selections, config, posthoc_result = NULL) {
   spider_data_list <- list()
 
   for (comp_name in names(comparisons)) {
-    group_filter <- comparisons[[comp_name]]
-    safe_name    <- gsub("[^a-zA-Z0-9_]", "_", comp_name)
-    plot_title   <- gsub("_", " ", comp_name)
+    comp_spec <- comparisons[[comp_name]]
+    safe_name <- gsub("[^a-zA-Z0-9_]", "_", comp_name)
+
+    # A comparison value is either the products directly (NULL = all, or a
+    # character vector), or a mapping {title:, products:, colors:} that overrides
+    # the defaults. The default title is the key with underscores as spaces.
+    plot_colors <- global_colors
+    scale_min   <- scale_min_g
+    scale_max   <- scale_max_g
+    if (is.list(comp_spec) &&
+        !is.null(names(comp_spec)) &&
+        any(c("title", "products", "groups", "colors", "scale_min", "scale_max") %in%
+            names(comp_spec))) {
+      group_filter <- comp_spec$products %||% comp_spec$groups
+      plot_title   <- comp_spec$title %||% gsub("_", " ", comp_name)
+      if (!is.null(comp_spec$scale_min)) scale_min <- comp_spec$scale_min
+      if (!is.null(comp_spec$scale_max)) scale_max <- comp_spec$scale_max
+      if (!is.null(comp_spec$colors)) {
+        cc <- unlist(comp_spec$colors)
+        # A named per-plot map merges over the global one; a positional vector
+        # replaces it for this chart.
+        plot_colors <- if (!is.null(names(cc)) && any(nzchar(names(cc)))) {
+          utils::modifyList(as.list(global_colors %||% list()), as.list(cc))
+        } else cc
+      }
+    } else {
+      group_filter <- comp_spec
+      plot_title   <- gsub("_", " ", comp_name)
+    }
+    if (!is.null(group_filter)) group_filter <- unlist(group_filter, use.names = FALSE)
 
     spider_data <- tryCatch(
       create_spider_plot_data(
@@ -344,7 +492,8 @@ run_figure_phase <- function(data, selections, config, posthoc_result = NULL) {
         outcomes            = outcomes,
         group_filter        = group_filter,
         top_n               = top_n,
-        scale_min           = 0,
+        scale_min           = scale_min,
+        scale_max           = scale_max,
         renaming_dictionary = dict
       ),
       error = function(e) {
@@ -364,7 +513,13 @@ run_figure_phase <- function(data, selections, config, posthoc_result = NULL) {
       title        = plot_title,
       width        = width,
       height       = height,
-      dpi          = dpi
+      dpi          = dpi,
+      label_size   = label_size,
+      show_legend  = legend_opt,
+      color_map    = plot_colors,
+      axis_labels  = axis_labels,
+      axis_unit    = axis_unit,
+      axis_steps   = axis_steps
     )
 
     readr::write_csv(spider_data$means_table, tbl_path)

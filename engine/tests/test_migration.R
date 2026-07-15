@@ -5,9 +5,9 @@
 # Run from the repo root:  Rscript tests/test_migration.R
 
 suppressMessages({ library(cli); library(yaml); library(here) })
-source(file.path("R", "functions", "settings_helpers.R"))
-source(file.path("R", "functions", "project_helpers.R"))
-source(file.path("R", "functions", "migration_helpers.R"))
+source(here::here("engine", "R", "functions", "settings_helpers.R"))
+source(here::here("engine", "R", "functions", "project_helpers.R"))
+source(here::here("engine", "R", "functions", "migration_helpers.R"))
 
 passed <- 0L
 check <- function(label, ...) { stopifnot(...); passed <<- passed + 1L; cat("ok  ", label, "\n") }

@@ -37,7 +37,7 @@ if (SENSANALYSER_SETUP_VERBOSE) {
 if (SENSANALYSER_SETUP_VERBOSE) {
   cli::cli_h2("Step 1: Checking project structure")
 }
-source(here::here("R", "00_initialise_project_structure.R"))
+source(here::here("engine", "R", "00_initialise_project_structure.R"))
 sensanalyser_initialise_structure()
 
 # Step 2 ------------------------------------------------------------------
@@ -47,7 +47,7 @@ sensanalyser_initialise_structure()
 if (SENSANALYSER_SETUP_VERBOSE) {
   cli::cli_h2("Step 2: Checking dependencies")
 }
-source(here::here("R", "functions", "package_list.R"))
+source(here::here("engine", "R", "functions", "package_list.R"))
 
 all_packages <- sensanalyser_get_all_packages()
 available_packages <- all_packages[vapply(

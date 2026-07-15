@@ -383,7 +383,7 @@ sensanalyser_migrate_project <- function(project_dir, overwrite = FALSE) {
   # model_presets.yaml is an engine asset again; a project copy would silently
   # override templates/. Retire an untouched copy, keep a customised one.
   presets <- file.path(dict_dir, "model_presets.yaml")
-  template_presets <- here::here("templates", "data", "dictionary", "model_presets.yaml")
+  template_presets <- here::here("engine", "templates", "data", "dictionary", "model_presets.yaml")
   if (file.exists(presets) && file.exists(template_presets)) {
     same <- identical(tools::md5sum(presets)[[1]], tools::md5sum(template_presets)[[1]])
     if (same) {

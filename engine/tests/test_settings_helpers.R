@@ -8,7 +8,7 @@
 # plain assertions that fail loudly.
 
 suppressMessages({ library(cli); library(yaml) })
-source(file.path("R", "functions", "settings_helpers.R"))
+source(here::here("engine", "R", "functions", "settings_helpers.R"))
 
 passed <- 0L
 check <- function(label, ...) {

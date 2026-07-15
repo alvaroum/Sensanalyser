@@ -10,6 +10,44 @@ library(cli)
 library(yaml)
 library(here)
 
+#' Put a settings list into a fresh interactive-setup state and write it out
+#'
+#' Sets the data/variable fields to `ask` and turns `interactive_setup` on, so
+#' the next run prompts for the data files and variables and writes the answers
+#' back into settings.yaml. Shared by [sensanalyser_create_project()] and
+#' [sensanalyser_reset_project()] so a brand-new project and a reset project
+#' behave identically on their first run.
+#'
+#' @param settings_file Destination settings.yaml path.
+#' @param project_name Value for `project.name`.
+#' @param settings Settings list to modify and write.
+#' @param note One or more `#`-prefixed comment lines describing why the file
+#'   is in this state (e.g. "created" vs "reset").
+#' @keywords internal
+.sens_write_fresh_settings <- function(settings_file, project_name, settings, note) {
+  settings$project$name          <- project_name
+  settings$data$files            <- SENS_ASK
+  settings$variables$attributes  <- SENS_ASK
+  settings$variables$product     <- SENS_ASK
+  settings$variables$panelist    <- SENS_ASK
+  settings$variables$extra_factors <- list()
+  settings$advanced$interactive_setup <- TRUE
+
+  header <- c(
+    "# ==========================================================================",
+    "# SENSANALYSER PROJECT SETTINGS",
+    "# ==========================================================================",
+    "#",
+    note,
+    "# Your answers are then written back here. See templates/settings.yaml",
+    "# for every documented option.",
+    "# --------------------------------------------------------------------------",
+    ""
+  )
+  writeLines(c(header, strsplit(.sens_as_yaml(settings), "\n", fixed = TRUE)[[1]]), settings_file)
+  invisible(settings_file)
+}
+
 #' Create a new isolated project folder
 #' 
 #' @param project_dir Directory path for the new project
@@ -41,13 +79,23 @@ sensanalyser_create_project <- function(project_dir, project_id = NULL, overwrit
   # A new project gets exactly one file to edit. Model presets and the report
   # template are engine assets, resolved from templates/ at run time; copy one
   # into the project only if you want to customise it.
-  template_dir <- here::here("templates")
+  template_dir <- here::here("engine", "templates")
   if (file.exists(file.path(template_dir, "settings.yaml"))) {
     settings_dest <- file.path(project_dir, "settings.yaml")
     file.copy(file.path(template_dir, "settings.yaml"), settings_dest)
-    lines <- readLines(settings_dest, warn = FALSE)
-    lines <- sub("^(  name: )my_study", paste0("\\1", basename(project_dir)), lines)
-    writeLines(lines, settings_dest)
+    # Start the project in interactive first-run state: the first run asks for
+    # the data files and variables, then writes the choices back here. Without
+    # this the template's `auto` defaults would silently auto-detect and never
+    # prompt.
+    settings <- tryCatch(yaml::read_yaml(settings_dest), error = function(e) list())
+    if (is.null(settings)) settings <- list()
+    .sens_write_fresh_settings(
+      settings_dest, basename(project_dir), settings,
+      note = c(
+        paste0("# New project created on ", format(Sys.Date()), "."),
+        "# The next run will ask for the data files and variables."
+      )
+    )
   }
 
   # Write manifest
@@ -148,7 +196,7 @@ sensanalyser_reset_project <- function(project_dir, full = FALSE, ask = interact
 
   # 2. Rewrite settings.yaml so the next run is a fresh interactive setup.
   if (full || !file.exists(settings_file)) {
-    template <- here::here("templates", "settings.yaml")
+    template <- here::here("engine", "templates", "settings.yaml")
     if (file.exists(template)) file.copy(template, settings_file, overwrite = TRUE)
     settings <- tryCatch(yaml::read_yaml(settings_file), error = function(e) list())
     if (is.null(settings)) settings <- list()
@@ -157,27 +205,13 @@ sensanalyser_reset_project <- function(project_dir, full = FALSE, ask = interact
     if (is.null(settings)) settings <- list()
   }
 
-  settings$project$name <- basename(project_root)
-  settings$data$files <- "ask"
-  settings$variables$attributes <- "ask"
-  settings$variables$product <- "ask"
-  settings$variables$panelist <- "ask"
-  settings$variables$extra_factors <- list()
-  settings$advanced$interactive_setup <- TRUE
-
-  header <- c(
-    "# ==========================================================================",
-    "# SENSANALYSER PROJECT SETTINGS",
-    "# ==========================================================================",
-    "#",
-    paste0("# Reset to a clean state on ", format(Sys.Date()), "."),
-    "# The next run will ask for the data files and variables again;",
-    "# your answers are then written back here. See templates/settings.yaml",
-    "# for every documented option.",
-    "# --------------------------------------------------------------------------",
-    ""
+  .sens_write_fresh_settings(
+    settings_file, basename(project_root), settings,
+    note = c(
+      paste0("# Reset to a clean state on ", format(Sys.Date()), "."),
+      "# The next run will ask for the data files and variables again."
+    )
   )
-  writeLines(c(header, strsplit(.sens_as_yaml(settings), "\n", fixed = TRUE)[[1]]), settings_file)
 
   cli::cli_alert_success("Project reset. Run {.code run_project('{project_dir}')} to set it up again.")
   invisible(project_root)

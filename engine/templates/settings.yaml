@@ -124,10 +124,27 @@ outputs:
     top_n_attributes: null     # null = all attributes
     significant_only: true
     attributes: null           # null = the analysed attributes
+    label_size: null           # null = auto-size axis labels; or a cex number
+    legend: auto               # auto = hide for single-group charts; true / false
+    colors: {}                 # fixed colour per product (stable across charts):
+    # colors:
+    #   Control: "#7F7F7F"
+    #   Trial 1: "#2CA02C"
+    scale_min: 0               # radial axis minimum
+    scale_max: null            # null = auto-fit each chart; or a fixed number (e.g. 15)
+    axis_labels: value         # value = real scale values / percent = 0-100% / none
+    axis_unit: ""              # suffix on the tick labels, e.g. "%" or " cm"
+    axis_steps: 4              # number of rings on the axis
     comparisons: {}            # each entry becomes one spider plot:
     # comparisons:
-    #   control_vs_trial1: [Control, Trial 1]
-    #   all_products: null     # null = every product
+    #   control_vs_trial1: [Control, Trial 1]     # bare list of products
+    #   all_products: null                        # null = every product
+    #   named_plot:                               # mapping form: overrides
+    #     title: "Control vs. Trial 1"
+    #     products: [Control, Trial 1]
+    #     colors: {Trial 1: "#FF7F00"}            # per-plot colour override
+    #     scale_max: 15                           # per-plot scale override
+    # See docs/spiderplots.md for the full guide.
 
 
 # ─── 7. DISPLAY LABELS ────────────────────────────────────────────────────

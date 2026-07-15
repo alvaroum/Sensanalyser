@@ -116,7 +116,7 @@
 
 #' @examples
 #' \dontrun{
-#'   source(here::here("R", "core_engine.R"))
+#'   source(here::here("engine", "R", "core_engine.R"))
 #'   run_sensanalyser_pipeline(config)
 #' }
 #'
@@ -661,11 +661,11 @@ run_sensanalyser_pipeline <- function(config) {
   cli::cli_h2("Loading Environment")
 
   # Setup and package loading
-  source(here::here("R", "00_setup.R"))
+  source(here::here("engine", "R", "00_setup.R"))
 
   # Phase 2 helpers
-  source(here::here("R", "functions", "data_import_helpers.R"))
-  source(here::here("R", "functions", "variable_selection_helpers.R"))
+  source(here::here("engine", "R", "functions", "data_import_helpers.R"))
+  source(here::here("engine", "R", "functions", "variable_selection_helpers.R"))
 
   # Future helper files (sourced only if they exist yet)
   optional_helpers <- c(
@@ -685,7 +685,7 @@ run_sensanalyser_pipeline <- function(config) {
   )
 
   for (helper in optional_helpers) {
-    fpath <- here::here("R", "functions", helper)
+    fpath <- here::here("engine", "R", "functions", helper)
     if (file.exists(fpath)) {
       source(fpath)
     }

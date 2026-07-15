@@ -103,7 +103,15 @@ sensanalyser_default_settings <- function() {
         top_n_attributes = NULL,
         significant_only = TRUE,
         attributes       = NULL,
-        comparisons      = list()      # free-form: name -> product vector
+        label_size       = NULL,       # NULL = auto; relative size of axis labels
+        legend           = "auto",     # "auto" (hide for single group) / TRUE / FALSE
+        colors           = list(),     # free-form: product display name -> colour
+        scale_min        = 0,          # radial axis minimum
+        scale_max        = NULL,       # NULL = auto-fit per chart; or a fixed number
+        axis_labels      = "value",    # "value" / "percent" / "none"
+        axis_unit        = "",         # suffix on value labels, e.g. "%" or " cm"
+        axis_steps       = 4,          # number of rings / axis segments
+        comparisons      = list()      # free-form: name -> product vector or {title, products}
       )
     ),
 
@@ -138,7 +146,7 @@ sensanalyser_default_settings <- function() {
 # key-checked: subset names, spider comparison names, column and attribute
 # names in the label maps, derived attribute names.
 .sens_freeform_paths <- function() {
-  c("subsets", "outputs.spider.comparisons",
+  c("subsets", "outputs.spider.comparisons", "outputs.spider.colors",
     "labels.aliases", "labels.variables", "labels.levels", "labels.attributes",
     "derived_attributes")
 }
@@ -153,7 +161,8 @@ sensanalyser_default_settings <- function() {
                      "three_way_repeated", "linear_mixed_model"),
     "model.posthoc.method" = c("tukey", "bonferroni", "lsd"),
     "outliers.policy" = c("keep_all", "remove_extreme", "remove_all"),
-    "outliers.action" = c("set_na", "drop_row")
+    "outliers.action" = c("set_na", "drop_row"),
+    "outputs.spider.axis_labels" = c("value", "percent", "none")
   )
 }
 
@@ -698,9 +707,9 @@ sensanalyser_settings_to_config <- function(settings) {
       renaming_dictionary = state$renaming_dictionary,
       derived_attributes  = state$derived_attributes,
       model_presets       = .sens_engine_asset(root, "data/dictionary/model_presets.yaml",
-                                               "templates/data/dictionary/model_presets.yaml"),
+                                               "engine/templates/data/dictionary/model_presets.yaml"),
       report_template     = .sens_engine_asset(root, "reports/sensanalyser_results_report.qmd",
-                                               "templates/reports/sensanalyser_results_report.qmd"),
+                                               "engine/templates/reports/sensanalyser_results_report.qmd"),
       derived_data        = file.path(root, "data/processed/derived_attribute_dataset.csv"),
       table_root          = file.path(root, "outputs/tables"),
       figure_root         = file.path(root, "outputs/figures"),
@@ -764,6 +773,14 @@ sensanalyser_settings_to_config <- function(settings) {
       top_n_attributes        = settings$outputs$spider$top_n_attributes,
       spider_significant_only = settings$outputs$spider$significant_only,
       spider_outcomes         = settings$outputs$spider$attributes,
+      spider_label_size       = settings$outputs$spider$label_size,
+      spider_legend           = settings$outputs$spider$legend,
+      spider_colors           = settings$outputs$spider$colors,
+      spider_scale_min        = settings$outputs$spider$scale_min,
+      spider_scale_max        = settings$outputs$spider$scale_max,
+      spider_axis_labels      = settings$outputs$spider$axis_labels,
+      spider_axis_unit        = settings$outputs$spider$axis_unit,
+      spider_axis_steps       = settings$outputs$spider$axis_steps,
       spider_comparisons      = settings$outputs$spider$comparisons
     ),
 

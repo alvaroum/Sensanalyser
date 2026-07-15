@@ -4,7 +4,7 @@ Sensanalyser is a reusable R workflow for sensory data analysis. It uses a **Hub
 
 ## Architecture
 
-*   **The Hub (Root Directory):** Contains the core engine (`R/`), standard templates (`templates/`), and the launcher (`run_sensanalyser.R`).
+*   **The Hub (Root Directory):** The launcher (`run_sensanalyser.R`) and your `projects/`. The core engine, templates and tests live in `engine/` and are not something you edit.
 *   **The Spokes (`projects/`):** Each dataset gets its own isolated folder. All raw data, outputs, diagnostics, and reports for a project stay within it, and **everything you configure lives in that project's single `settings.yaml`**. A project folder is self-contained: you can copy or move it and it still runs.
 
 ## Quick start
@@ -14,7 +14,7 @@ Everything a project needs is one file — `settings.yaml` — and you launch it
 ### 1. Create a project
 
 ```r
-source("R/load_sensanalyser.R")
+source("engine/R/load_sensanalyser.R")
 create_project("projects/my_study")
 ```
 
@@ -59,7 +59,7 @@ settings_summary("projects/my_study")
 Open `run_sensanalyser.R`, point it at your project, and press **Run All** (Ctrl+Shift+Enter):
 
 ```r
-source("R/load_sensanalyser.R")
+source("engine/R/load_sensanalyser.R")
 run_project("projects/my_study")
 # run_projects(c("projects/a", "projects/b"))   # several, in sequence
 ```
@@ -71,7 +71,7 @@ That's it. Outputs land in `projects/my_study/outputs/` and never overwrite anot
 To wipe a project's results and set it up again from scratch — re-selecting the raw data files and variables as if it were brand new:
 
 ```r
-source("R/load_sensanalyser.R")
+source("engine/R/load_sensanalyser.R")
 reset_project("projects/my_study")           # keeps your model, labels, subsets
 reset_project("projects/my_study", full = TRUE)   # also resets every setting
 ```
@@ -83,17 +83,17 @@ This deletes all outputs, cleaned data and rendered reports, then makes the next
 Projects that still use `project_config.R` and scattered dictionary YAMLs can be converted to a single `settings.yaml` in one call (originals are kept as `*.migrated`, nothing is deleted):
 
 ```r
-source("R/load_sensanalyser.R")
+source("engine/R/load_sensanalyser.R")
 migrate_project("projects/my_old_project")
 ```
 
-> **What lives where.** You edit only `settings.yaml`. Files Sensanalyser maintains itself (resolved run record, product-split decisions) live in `data/dictionary/state/` — you never touch them. The statistical model presets and the report template are engine assets read from `templates/`; drop your own copy into the project only if you want to customise one.
+> **What lives where.** You edit only `settings.yaml`. Files Sensanalyser maintains itself (resolved run record, product-split decisions) live in `data/dictionary/state/` — you never touch them. The statistical model presets and the report template are engine assets read from `engine/templates/`; drop your own copy into the project only if you want to customise one.
 
 ---
 
 ## Phase Breakdown
 
-Sensanalyser executes a sequential, deterministic pipeline. For a detailed breakdown of the models, mathematical formulas, and specific R packages powering these analytical phases, please refer to the **[Statistical Methods Documentation](STATISTICAL_METHODS.md)**.
+Sensanalyser executes a sequential, deterministic pipeline. For a detailed breakdown of the models, mathematical formulas, and specific R packages powering these analytical phases, please refer to the **[Statistical Methods Documentation](engine/STATISTICAL_METHODS.md)**.
 
 The major phases currently implemented are:
 
@@ -126,10 +126,10 @@ Phase 8 covers multivariate outputs (PCA, HCPC, MFA) and figure generation. **Hi
 If the engine complains about missing packages, run:
 
 ```r
-source("R/00_install_dependencies.R")
+source("engine/R/00_install_dependencies.R")
 sensanalyser_install_dependencies(categories = "all")
 ```
 
 ## Legacy Files
 
-`master_mission_control.R` and the older per-project `project_config.R` still work but are deprecated: `master_mission_control.R` now just forwards to `run_sensanalyser.R`, and any project without a `settings.yaml` falls back to its `project_config.R`. Convert old projects with `migrate_project()` (see Quick start). Older single-folder scripts are kept for reference in `archive/`.
+The older per-project `project_config.R` still works but is deprecated: any project without a `settings.yaml` falls back to its `project_config.R`. Convert old projects to a single `settings.yaml` with `migrate_project()` (see Quick start). The repo-root launcher is now `run_sensanalyser.R`.
