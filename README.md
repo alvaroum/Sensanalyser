@@ -11,6 +11,11 @@ Sensanalyser is a reusable R workflow for sensory data analysis. It uses a **Hub
 
 Everything a project needs is one file — `settings.yaml` — and you launch it with one line. Works in Positron or RStudio; no app to install.
 
+> **First time on a new machine?** Running `run_sensanalyser.R` automatically checks for and installs any missing R packages before it does anything else, so a fresh R installation just works. If you'd rather install everything up front (or before using the console helpers below), run once:
+> ```r
+> source("engine/R/00_bootstrap.R"); sensanalyser_install_all()
+> ```
+
 ### 1. Create a project
 
 ```r
@@ -123,12 +128,21 @@ Phase 8 covers multivariate outputs (PCA, HCPC, MFA) and figure generation. **Hi
 
 ## Installing dependencies
 
-If the engine complains about missing packages, run:
+**You normally don't have to.** The first time you run `run_sensanalyser.R`, it
+checks for every package Sensanalyser needs and offers to install the missing
+ones — this works in a brand-new R installation, before even `here` or `cli`
+are present. Just say yes at the prompt (it can take a few minutes the first
+time).
+
+To install everything up front, or if you only want to prepare the environment
+without running an analysis, source the bootstrap directly:
 
 ```r
-source("engine/R/00_install_dependencies.R")
-sensanalyser_install_dependencies(categories = "all")
+source("engine/R/00_bootstrap.R")
+sensanalyser_install_all()
 ```
+
+This uses only base R, so it runs on a machine where nothing is installed yet.
 
 ## Legacy Files
 

@@ -64,7 +64,7 @@ if (length(missing_packages) == 0) {
   cli::cli_alert_warning("Missing {length(missing_packages)} package{?s}.")
   cli::cli_ul(missing_packages)
   cli::cli_inform("Install missing packages with:")
-  cli::cli_code("source(\"R/00_install_dependencies.R\"); sensanalyser_install_dependencies(categories = \"all\")")
+  cli::cli_code("source(\"engine/R/00_bootstrap.R\"); sensanalyser_install_all()")
 }
 
 # Step 3 ------------------------------------------------------------------

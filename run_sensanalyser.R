@@ -16,6 +16,29 @@
 #   create_project("projects/my_new_study")      # new project folder
 # ==========================================================================
 
+# ── First run: install any missing packages (pure base R, no dependencies) ──
+# Locate the engine bootstrap by walking up from the working directory, so this
+# works even in a brand-new R install where `here` is not available yet.
+local({
+  root <- normalizePath(getwd(), winslash = "/", mustWork = FALSE)
+  while (!file.exists(file.path(root, "engine", "R", "00_bootstrap.R")) &&
+         !identical(dirname(root), root)) {
+    root <- dirname(root)
+  }
+  bootstrap <- file.path(root, "engine", "R", "00_bootstrap.R")
+  if (!file.exists(bootstrap)) {
+    stop("Could not find engine/R/00_bootstrap.R. Open the Sensanalyser ",
+         "project (its .Rproj) or setwd() to the project folder, then run again.",
+         call. = FALSE)
+  }
+  source(bootstrap)
+  if (!isTRUE(sensanalyser_install_all(root = root))) {
+    stop("Required packages are missing, so Sensanalyser cannot start. ",
+         "See the messages above.", call. = FALSE)
+  }
+})
+
+# Packages are guaranteed present from here on.
 source(here::here("engine", "R", "load_sensanalyser.R"))
 
 run_project("projects/example_study")
