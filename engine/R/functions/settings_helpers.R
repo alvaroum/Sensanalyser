@@ -583,7 +583,10 @@ sensanalyser_load_settings <- function(project_dir) {
 .sens_render_commented_settings <- function(full) {
   emit <- function(key, value) {
     y <- yaml::as.yaml(stats::setNames(list(value), key), indent = 2)
-    strsplit(sub("\n+$", "", y), "\n", fixed = TRUE)[[1]]
+    lines <- strsplit(sub("\n+$", "", y), "\n", fixed = TRUE)[[1]]
+    # Avoid YAML flow-style empty maps (`{}`) in this user-facing file. A
+    # blank mapping is clearer to novice users and is merged with defaults.
+    sub("^(\\s*[^:]+): \\{\\}$", "\\1:", lines)
   }
 
   L <- c(
@@ -615,54 +618,89 @@ sensanalyser_load_settings <- function(project_dir) {
   ))
   add(emit("variables", full$variables), c(
     "# ── Variables ────────────────────────────────────────────────────────────",
-    "# attributes    : sensory attributes to analyse",
-    "# exclude       : columns dropped completely from every analysis",
-    "# product       : the product / sample column",
-    "# panelist      : the assessor column (or null)",
-    "# extra_factors : extra design factors, e.g. [session]",
+    "# attributes    : sensory attributes to analyse (a YAML list of exact names).",
+    "# exclude       : columns dropped completely from every analysis (YAML list).",
+    "# product       : column containing product/sample names.",
+    "# panelist      : column identifying the assessor; leave blank when absent.",
+    "# extra_factors : other design-factor columns, e.g. session or replicate.",
     "# Use exact internal attribute names from data_summary.yaml; labels do not",
     "# replace these analysis names. Example: add 'aftertaste_a' under attributes."
   ))
   add(emit("model", full$model), c(
     "# ── Model ────────────────────────────────────────────────────────────────",
-    "# type: the statistical model. One of one_way_anova, two_way_anova,",
-    "#   three_way_anova, one_way_repeated, two_way_repeated, two_way_mixed,",
-    "#   three_way_repeated, linear_mixed_model.",
-    "#   Example: set posthoc.run: true to add pairwise comparisons."
+    "# type: one_way_anova, two_way_anova, three_way_anova, one_way_repeated,",
+    "#   two_way_repeated, two_way_mixed, three_way_repeated, or linear_mixed_model.",
+    "# fixed_effects: explanatory factor columns. A blank value (~) lets the",
+    "#   selected model infer them from product and extra_factors.",
+    "# random_effects: grouping columns for random effects; usually the panelist.",
+    "# repeated_measures: within-subject factor columns for repeated designs.",
+    "# alpha: significance threshold, normally 0.05.",
+    "# run_anova / run_mixed: turn the relevant model engine on or off.",
+    "# posthoc.run: run pairwise comparisons when there are more than two products.",
+    "# posthoc.method: tukey, bonferroni, or lsd. focal_terms blank = significant terms."
   ))
   add(emit("outliers", full$outliers), c(
     "# ── Outliers ─────────────────────────────────────────────────────────────",
+    "# detect: identify potential outliers. apply_policy: apply the selected action.",
     "# policy: keep_all (report only), remove_extreme, or remove_all.",
-    "# action: set_na removes only a score; drop_row removes the observation."
+    "# action: set_na removes only a score; drop_row removes the observation.",
+    "# grouping_factors: columns used to assess outliers within groups; blank uses design factors."
   ))
   add(emit("multivariate", full$multivariate), c(
     "# ── Multivariate ─────────────────────────────────────────────────────────",
-    "# PCA/HCPC/MFA settings. HCPC clusters: auto, click, or a number >= 2."
+    "# pca.run / hcpc.run / mfa.run: enable each multivariate analysis.",
+    "# pca.significant_only: use only attributes with significant product effects.",
+    "# hcpc.clusters: auto, click, or a whole number of 2 or more."
   ))
   add(emit("outputs", full$outputs), c(
     "# ── Outputs ──────────────────────────────────────────────────────────────",
-    "# Presentation-ready report tables are written under tables/presentation/.",
-    "# CSV files use readable Unicode superscripts; XLSX files use true Excel",
-    "# superscript formatting."
+    "# descriptives / tables / report: write descriptive tables, presentation tables, or Quarto report.",
+    "# figures.spider / pca / hcpc / mfa: save images for each enabled analysis.",
+    "# report_formats: YAML list of html, docx, or pdf.",
+    "# table.digits: decimal places; mean_se: include mean ± SE; letters: post-hoc letters.",
+    "# figure.width / height / dpi / palette: image dimensions, resolution and RColorBrewer palette.",
+    "# spider.top_n_attributes: number of axes or blank for all; significant_only: significant only.",
+    "# spider.attributes: exact YAML list to force specific attributes; blank = analysed attributes.",
+    "# spider.label_size: text scaling or blank for automatic; legend: auto, true, or false.",
+    "# spider.colors: product-to-colour mapping; scale_min / scale_max: radial limits.",
+    "# spider.axis_labels: value, percent, or none; axis_unit: suffix; axis_steps: ring count.",
+    "# spider.comparisons: named product lists for individual spider plots.",
+    "# Presentation-ready tables are written under tables/presentation/ (CSV and XLSX)."
   ))
   add(emit("labels", full$labels), c(
     "# ── Display labels and product aliases ───────────────────────────────────",
     "# labels.attributes: display-only attribute names in tables, figures and reports.",
     "# labels.levels.product: display-only product names; products remain distinct.",
     "# labels.aliases.product: merge raw names that are truly the same product.",
-    "# Use exact names from data_summary.yaml. Examples:",
-    "#   labels:",
-    "#     attributes: {chewiness_m: 'Chewiness (Mouthfeel)'}",
-    "#     levels: {product: {'Trial 1': 'Ushuaia trial'}}",
-    "#     aliases: {product: {'Trial 1 fresh': 'Trial 1'}}"
+    "# variables: display labels for column headings such as product or user.",
+    "# Use exact names from data_summary.yaml. YAML examples:",
+    "#   attributes:",
+    "#     chewiness_m: Chewiness (Mouthfeel)",
+    "#   levels:",
+    "#     product:",
+    "#       Trial 1: Ushuaia trial",
+    "#   aliases:",
+    "#     product:",
+    "#       Trial 1 fresh: Trial 1"
   ))
   add(emit("derived", full$derived), c(
     "# ── Derived attributes ───────────────────────────────────────────────────",
-    "# Enable only when definitions under derived_attributes are present."
+    "# enabled: calculate the definitions below before modelling.",
+    "# digits: optional rounding of derived values; blank retains full precision.",
+    "# output_label: optional subfolder name for derived-analysis outputs."
   ))
   add(emit("derived_attributes", full$derived_attributes), c(
-    "# Define row-wise derived attributes here; source_variables use internal names",
-    "# from data_summary.yaml."
+    "# Define row-wise derived attributes here; source_variables use exact internal",
+    "# names from data_summary.yaml. Each definition needs label, method: mean,",
+    "# min_non_missing, and a YAML list of at least two source_variables.",
+    "# Example:",
+    "#   overall_fruity:",
+    "#     label: Overall fruity",
+    "#     method: mean",
+    "#     min_non_missing: 2",
+    "#     source_variables:",
+    "#       - stone_fruits_a",
+    "#       - tropical_a"
   ))
   add(emit("scope", full$scope %||% "general"), c(
     "# ── Scope ────────────────────────────────────────────────────────────────",
@@ -672,13 +710,17 @@ sensanalyser_load_settings <- function(project_dir) {
   add(emit("subsets", full$subsets), c(
     "# ── Subsets ──────────────────────────────────────────────────────────────",
     "# Each entry uses include OR exclude and exact product names from data_summary.yaml.",
-    "# Example: {without_control: {exclude: [Control]}}"
+    "# YAML example:",
+    "#   without_control:",
+    "#     exclude:",
+    "#       - Control"
   ))
   add(emit("advanced", full$advanced), c(
     "# ── Advanced ─────────────────────────────────────────────────────────────",
-    "# interactive_setup is used only for guided first setup; reset_project() is",
-    "# the safe way to request it again. discover_variables prints data structure",
-    "# and stops before analysis."
+    "# interactive_setup: true asks setup questions; reset_project() is the safe",
+    "# way to request it again. discover_variables: true prints data structure and",
+    "# stops before analysis. descriptive_grouping_factors: override the factors",
+    "# used for descriptive tables; leave blank to use the model factors."
   ))
 
   handled <- c("project", "data", "variables", "model", "outliers", "multivariate",

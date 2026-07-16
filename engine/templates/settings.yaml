@@ -51,25 +51,29 @@ model:
   # two_way_repeated, two_way_mixed, three_way_repeated, linear_mixed_model
   type: linear_mixed_model
 
-  random_effects: [assessor]   # for mixed models
-  repeated_measures: []        # for repeated-measures ANOVA
-  fixed_effects: null          # null = derived from the model type + factors
+  # Random grouping columns for mixed models; usually the panelist column.
+  random_effects: [assessor]
+  # Within-subject columns for repeated-measures models; [] = none.
+  repeated_measures: []
+  # Fixed explanatory-factor columns. null = infer product + extra_factors.
+  fixed_effects: null
 
-  alpha: 0.05
+  alpha: 0.05                  # significance threshold, normally 0.05
 
-  run_anova: false             # classical ANOVA engine
-  run_mixed: true              # mixed-model engine
+  run_anova: false             # turn classical ANOVA fitting on/off
+  run_mixed: true              # turn mixed-model fitting on/off
 
   posthoc:
+    # Pairwise comparisons; unnecessary and skipped for exactly two products.
     run: false
-    method: tukey              # tukey, bonferroni, lsd
-    focal_terms: null          # null = every significant effect
+    method: tukey              # tukey, bonferroni, or lsd
+    focal_terms: null          # null = every significant model term
 
 
 # ─── 4. OUTLIERS ──────────────────────────────────────────────────────────
 outliers:
-  detect: true
-  apply_policy: true
+  detect: true                 # identify possible outliers
+  apply_policy: true           # apply the policy below; false = report only
   # keep_all       - report only, never modify the data
   # remove_extreme - remove only extreme outliers (recommended)
   # remove_all     - remove every identified outlier
@@ -77,28 +81,28 @@ outliers:
   # set_na   - blank out the outlying score only
   # drop_row - remove the whole observation
   action: set_na
-  grouping_factors: null       # null = the design factors above
+  grouping_factors: null       # null = design factors; or a YAML list of columns
 
 
 # ─── 5. MULTIVARIATE ──────────────────────────────────────────────────────
 multivariate:
   pca:
-    run: true
+    run: true                  # calculate PCA and save its tables/figures
     significant_only: false    # true = only attributes with a product effect
   hcpc:
-    run: true
+    run: true                  # calculate hierarchical clustering on PCA
     # auto  - Sensanalyser picks the number of clusters
     # click - show the dendrogram and click where to cut it
     # a number (>= 2) - force that many clusters
     clusters: auto
   mfa:
-    run: false
+    run: false                 # calculate multiple factor analysis
 
 
 # ─── 6. OUTPUTS ───────────────────────────────────────────────────────────
 outputs:
-  descriptives: true
-  tables: true
+  descriptives: true           # calculate and save descriptive summaries
+  tables: true                 # create presentation-ready CSV/XLSX tables
 
   # Which figures to save. Every analysis still runs and writes its tables;
   # this only controls the image files.
@@ -111,7 +115,7 @@ outputs:
     mfa: true
 
   report: false                # render the Quarto report
-  report_formats: [html, docx]
+  report_formats: [html, docx] # YAML list: html, docx, and/or pdf
 
   table:
     digits: 1
@@ -125,12 +129,12 @@ outputs:
     palette: Set1              # RColorBrewer palette for spider plots
 
   spider:
-    top_n_attributes: null     # null = all attributes
-    significant_only: true
-    attributes: null           # null = the analysed attributes
-    label_size: null           # null = auto-size axis labels; or a cex number
-    legend: auto               # auto = hide for single-group charts; true / false
-    colors: {}                 # fixed colour per product (stable across charts):
+    top_n_attributes: null     # null = all attributes; or a whole number
+    significant_only: true     # show only attributes with product effects
+    attributes: null           # null = analysed attributes; or YAML list of names
+    label_size: null           # null = automatic; or a positive text-scale number
+    legend: auto               # auto = context-aware; or true / false
+    colors:                    # fixed colour per product (stable across charts):
     # colors:
     #   Control: "#7F7F7F"
     #   Trial 1: "#2CA02C"
@@ -139,7 +143,7 @@ outputs:
     axis_labels: value         # value = real scale values / percent = 0-100% / none
     axis_unit: ""              # suffix on the tick labels, e.g. "%" or " cm"
     axis_steps: 4              # number of rings on the axis
-    comparisons: {}            # each entry becomes one spider plot:
+    comparisons:               # each named YAML entry becomes one spider plot:
     # comparisons:
     #   control_vs_trial1: [Control, Trial 1]     # bare list of products
     #   all_products: null                        # null = every product
@@ -158,19 +162,19 @@ labels:
   # Merge product names that mean the same thing (applied while cleaning).
   # Use exact current product names from data_summary.yaml. This changes the
   # analysis grouping, unlike levels.product which changes display only.
-  aliases: {}
+  aliases:
   # aliases:
   #   product:
   #     "bread_a": "Bread A"
 
-  variables: {}                # column headings
+  variables:                   # column headings
   # variables:
   #   product: Product
   #   user: Panelist
 
   # Display-only names for factor levels. Use this to make products read
   # better in tables and figures without merging them statistically.
-  levels: {}
+  levels:
   # levels:
   #   product:
   #     ctrl: Control
@@ -178,7 +182,7 @@ labels:
   # Sensory attribute labels. Unlisted names are formatted automatically when
   # they end in a recognised modality code: _ap Appearance, _a Aroma,
   # _f Flavour, _m Mouthfeel, _t Texture, or _af Aftertaste.
-  attributes: {}
+  attributes:
   # attributes:                 # explicit labels override the automatic form
   #   sweet_a: Sweetness (Aroma)
   # Use exact attribute names from data_summary.yaml; this changes labels only,
@@ -192,7 +196,7 @@ derived:
   digits: null                 # null = no rounding
   output_label: null           # subfolder for derived-attribute outputs
 
-derived_attributes: {}
+derived_attributes:
 # derived_attributes:
 #   overall_fruity:
 #     label: Overall Fruity
@@ -206,7 +210,7 @@ derived_attributes: {}
 # ─── 9. PRODUCT SUBSETS ───────────────────────────────────────────────────
 # Each entry re-runs the whole analysis on part of the products and writes to
 # outputs/subsets/<name>/. Use include OR exclude, not both.
-subsets: {}
+subsets:
 # subsets:
 #   without_control:
 #     exclude: [Control]

@@ -90,8 +90,11 @@ rendered_settings <- readLines(file.path(proj, "settings.yaml"))
 ok(any(grepl("guided setup", rendered_settings)), "writeback comments present")
 ok(any(grepl("data_summary.yaml", rendered_settings)) &&
    any(grepl("labels.aliases.product", rendered_settings, fixed = TRUE)) &&
-   any(grepl("Derived attributes", rendered_settings)),
-   "guided writeback documents names, aliases, and every settings section")
+   any(grepl("Derived attributes", rendered_settings)) &&
+   any(grepl("fixed_effects", rendered_settings, fixed = TRUE)) &&
+   any(grepl("source_variables", rendered_settings, fixed = TRUE)) &&
+   !any(grepl("{", rendered_settings, fixed = TRUE)),
+   "guided writeback uses documented block-style YAML for every settings section")
 
 # --- output routing: general/ + subsets/, and scope gating ---
 cfg <- sensanalyser_settings_to_config(r)
