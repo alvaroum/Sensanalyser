@@ -449,15 +449,23 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
   run_general <- scope %in% c("general", "both")
   run_subsets <- scope %in% c("subsets", "both")
 
+  # Prepare shared, schema-invariant state once. This avoids re-sourcing the
+  # environment and re-reading/re-cleaning every raw workbook for each scope.
+  # It is intentionally in-memory only: every top-level run imports fresh data.
+  batch <- .sensanalyser_prepare_batch(final_config)
+  batch_config <- batch$config
+
   # outputs/subsets/<name>/... sits beside outputs/general/... The general
   # roots look like <root>/outputs/general/tables, so the shared outputs base
   # is two levels up and each leaf ("tables", "figures", ...) is the basename.
-  outputs_base <- dirname(dirname(final_config$paths$table_root))
+  outputs_base <- dirname(dirname(batch_config$paths$table_root))
   subset_root  <- function(path, name) {
     file.path(outputs_base, "subsets", name, basename(path))
   }
 
-  main_state <- if (run_general) run_sensanalyser_pipeline(final_config) else NULL
+  main_state <- if (run_general) {
+    run_sensanalyser_pipeline(batch_config, prepared_batch = batch)
+  } else NULL
 
   # ── PRODUCT SUBSET ANALYSES ──────────────────────────────────────────────
   # Each named entry reruns the full pipeline on a filtered dataset and writes
@@ -481,22 +489,16 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
         cli::cli_rule()
         cli::cli_h1(sprintf("Sensanalyser — Product Subset: %s", subset_name))
 
-        subset_config <- final_config
+        subset_config <- batch_config
 
-        # Non-interactive: no prompts, no YAML write.
+        # Non-interactive: selections were resolved during batch preparation.
         subset_config$toggles$interactive_setup <- FALSE
-        if (!settings_driven) {
-          # Setting dependent_variables to NULL triggers the YAML-load block in
-          # core_engine so this subset uses the same variable selections as the
-          # main run rather than re-running auto-detection.
-          subset_config$analysis$dependent_variables <- NULL
-        }
 
         # Redirect all outputs to outputs/subsets/<name>/...
-        subset_config$paths$table_root       <- subset_root(final_config$paths$table_root,       subset_name)
-        subset_config$paths$figure_root      <- subset_root(final_config$paths$figure_root,      subset_name)
-        subset_config$paths$diagnostics_root <- subset_root(final_config$paths$diagnostics_root, subset_name)
-        subset_config$paths$logs_root        <- subset_root(final_config$paths$logs_root,        subset_name)
+        subset_config$paths$table_root       <- subset_root(batch_config$paths$table_root,       subset_name)
+        subset_config$paths$figure_root      <- subset_root(batch_config$paths$figure_root,      subset_name)
+        subset_config$paths$diagnostics_root <- subset_root(batch_config$paths$diagnostics_root, subset_name)
+        subset_config$paths$logs_root        <- subset_root(batch_config$paths$logs_root,        subset_name)
 
         # Attach the filter definition so core_engine applies it after data load.
         subset_config$product_subset <- c(subset_def, list(label = subset_name))
@@ -504,7 +506,7 @@ sensanalyser_run_project <- function(project_dir, global_toggles = list()) {
         # A single bad subset (e.g. too few products for clustering) must not
         # abort the general analysis or the other subsets.
         tryCatch(
-          run_sensanalyser_pipeline(subset_config),
+          run_sensanalyser_pipeline(subset_config, prepared_batch = batch),
           error = function(e) {
             cli::cli_alert_danger(
               "Subset '{subset_name}' failed and was skipped: {conditionMessage(e)}"

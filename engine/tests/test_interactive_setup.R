@@ -86,16 +86,34 @@ cfg <- sensanalyser_settings_to_config(r)
 ok(grepl("outputs/general/tables$", cfg$paths$table_root), "adapter general/ path")
 ok(cfg$analysis_scope == "both", "adapter scope both")
 
-captured <- list()
-run_sensanalyser_pipeline <- function(config) { captured[[length(captured)+1]] <<- config$paths$table_root; list(ok = TRUE) }
+captured <- list(); preparation_calls <- 0L
+.sensanalyser_prepare_batch <- function(config) {
+  preparation_calls <<- preparation_calls + 1L
+  list(
+    data_raw = data.frame(product = character()), data = data.frame(product = character()),
+    selections = selections, config = config
+  )
+}
+run_sensanalyser_pipeline <- function(config, prepared_batch = NULL) {
+  captured[[length(captured) + 1]] <<- list(
+    table_root = config$paths$table_root, batch = prepared_batch
+  )
+  list(ok = TRUE)
+}
+assign(".sensanalyser_prepare_batch", .sensanalyser_prepare_batch, envir = globalenv())
 assign("run_sensanalyser_pipeline", run_sensanalyser_pipeline, envir = globalenv())
 invisible(.sensanalyser_run_config(cfg))
-ok(any(grepl("outputs/general/tables$", unlist(captured))), "general pass -> general/")
-ok(any(grepl("outputs/subsets/grp1/tables$", unlist(captured))), "subset pass -> subsets/<name>/")
+captured_roots <- vapply(captured, `[[`, character(1), "table_root")
+ok(any(grepl("outputs/general/tables$", captured_roots)), "general pass -> general/")
+ok(any(grepl("outputs/subsets/grp1/tables$", captured_roots)), "subset pass -> subsets/<name>/")
+ok(preparation_calls == 1L && all(vapply(captured, function(x) !is.null(x$batch), logical(1))),
+   "general and subset scopes reuse one prepared batch")
 
-cfg2 <- cfg; cfg2$analysis_scope <- "subsets"; captured <- list()
+cfg2 <- cfg; cfg2$analysis_scope <- "subsets"; captured <- list(); preparation_calls <- 0L
 invisible(.sensanalyser_run_config(cfg2))
-ok(!any(grepl("outputs/general/tables$", unlist(captured))), "scope=subsets skips general")
+captured_roots <- vapply(captured, `[[`, character(1), "table_root")
+ok(!any(grepl("outputs/general/tables$", captured_roots)), "scope=subsets skips general")
+ok(preparation_calls == 1L, "subset-only run prepares one shared batch")
 
 cat(sprintf("\nAll %d interactive-setup checks passed.\n", pass))
 if (fail > 0) { cat(fail, "FAILED\n"); quit(status = 1) }

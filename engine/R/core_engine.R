@@ -73,6 +73,9 @@
   # 2. Outputs (tables, figures, diagnostics, logs)
   outputs_dirs <- c(config$paths$table_root, config$paths$figure_root,
                     config$paths$diagnostics_root, config$paths$logs_root)
+  if (!is.null(root)) {
+    outputs_dirs <- c(outputs_dirs, file.path(root, "outputs", "batch", "logs"))
+  }
   for (d in outputs_dirs) {
     if (!is.null(d) && dir.exists(d)) {
       unlink(list.files(d, full.names = TRUE), recursive = TRUE)
@@ -124,6 +127,10 @@
   invisible(unique(cleared))
 }
 
+#' @param config Fully resolved analysis configuration.
+#' @param prepared_batch Optional in-memory batch prepared by
+#'   `.sensanalyser_prepare_batch()`. Internal project orchestration uses this
+#'   to share import and setup work across scopes.
 #' @examples
 #' \dontrun{
 #'   source(here::here("engine", "R", "core_engine.R"))
@@ -131,13 +138,19 @@
 #' }
 #'
 #' @export
-run_sensanalyser_pipeline <- function(config) {
+run_sensanalyser_pipeline <- function(config, prepared_batch = NULL) {
 
   cli::cli_h1("Sensanalyser Pipeline")
   cli::cli_inform("Started: {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}")
 
-  # ── ENVIRONMENT SETUP ───────────────────────────────────────────────────
-  .source_all_helpers()
+  # A prepared batch is an in-memory, single-top-level-run cache created by
+  # .sensanalyser_prepare_batch(). It shares schema-invariant work (helper
+  # loading, import/cleaning, derived attributes and variable-role resolution)
+  # but never shares scope-dependent analysis results.
+  using_prepared_batch <- !is.null(prepared_batch)
+  if (!using_prepared_batch) {
+    .source_all_helpers()
+  }
 
   # In interactive mode, ask if the user wants to start from scratch (delete config, outputs, and rendered reports)
   is_interactive_env <- !identical(Sys.getenv("RSTUDIO"), "") || !identical(Sys.getenv("POSITRON"), "") || interactive()
@@ -172,40 +185,34 @@ run_sensanalyser_pipeline <- function(config) {
     }
   }
 
-  # Initialise pipeline state object
-  pipeline_state <- list(
-    data_raw   = NULL,
-    data       = NULL,
-    selections = NULL,
-    config     = config,
-    results    = list()
-  )
-
-  # ── PHASE 2: DATA IMPORT ────────────────────────────────────────────────
-  pipeline_state <- .phase2_data_import(pipeline_state)
-
-  # ── PROJECT-SPECIFIC DERIVED ATTRIBUTES ─────────────────────────────────
-  # Optional pre-analysis transformation layer. This adds derived variables to
-  # the working dataset while keeping data_raw unchanged for auditability.
-  if (isTRUE(pipeline_state$config$toggles$create_derived_attributes)) {
-    pipeline_state <- .phase2_derived_attributes(pipeline_state)
-
-    # If output_label is set, redirect all outputs to a named subfolder so
-    # derived-attribute runs never overwrite the regular analysis outputs.
-    output_label <- trimws(
-      pipeline_state$config$derived_attribute_options$output_label %||% ""
+  # Initialise from a fresh import or from the prepared batch. R's copy-on-
+  # modify semantics keep filtering and later transformations isolated per scope.
+  if (using_prepared_batch) {
+    cli::cli_inform("Reusing prepared data for this analysis scope.")
+    pipeline_state <- list(
+      data_raw   = prepared_batch$data_raw,
+      data       = prepared_batch$data,
+      selections = prepared_batch$selections,
+      config     = config,
+      results    = list()
     )
-    if (nzchar(output_label)) {
-      p <- pipeline_state$config$paths
-      pipeline_state$config$paths$table_root       <- file.path(p$table_root,       output_label)
-      pipeline_state$config$paths$figure_root      <- file.path(p$figure_root,      output_label)
-      pipeline_state$config$paths$diagnostics_root <- file.path(p$diagnostics_root, output_label)
-      pipeline_state$config$paths$logs_root        <- file.path(p$logs_root,        output_label)
-      cli::cli_alert_info(
-        "Derived-attribute run — outputs redirected to '{output_label}/' subfolders."
-      )
+  } else {
+    pipeline_state <- list(
+      data_raw   = NULL,
+      data       = NULL,
+      selections = NULL,
+      config     = config,
+      results    = list()
+    )
+    pipeline_state <- .phase2_data_import(pipeline_state)
+    if (isTRUE(pipeline_state$config$toggles$create_derived_attributes)) {
+      pipeline_state <- .phase2_derived_attributes(pipeline_state)
     }
   }
+
+  # If output_label is set, redirect all outputs to a named subfolder so
+  # derived-attribute runs never overwrite the regular analysis outputs.
+  pipeline_state$config <- .sens_redirect_derived_outputs(pipeline_state$config)
 
   # ── PRODUCT SUBSET FILTER ───────────────────────────────────────────────
   # Applied only on subset runs launched from project_helpers after the main run.
@@ -226,7 +233,15 @@ run_sensanalyser_pipeline <- function(config) {
   }
 
   # ── PHASE 2: VARIABLE SELECTION ─────────────────────────────────────────
-  pipeline_state <- .phase2_variable_selection(pipeline_state)
+  if (!using_prepared_batch) {
+    pipeline_state <- .phase2_variable_selection(pipeline_state)
+  }
+
+  # Coerce after product filtering so each scope retains exactly the factor
+  # levels it would have had under the former independently imported workflow.
+  pipeline_state$data <- coerce_to_factors(
+    pipeline_state$data, pipeline_state$selections
+  )
 
   # ── PHASE 3: OUTLIER DETECTION ──────────────────────────────────────────
   if (isTRUE(pipeline_state$config$toggles$run_outlier_detection)) {
@@ -272,6 +287,67 @@ run_sensanalyser_pipeline <- function(config) {
   cli::cli_alert_success("Pipeline complete.")
 
   invisible(pipeline_state)
+}
+
+#' Prepare schema-invariant data once for a general/subset analysis batch
+#'
+#' Performs helper sourcing, raw import/cleaning, optional derived attributes,
+#' and variable-role resolution once within a top-level project run. The result
+#' is in-memory only, so a later run always prepares fresh data.
+#'
+#' @param config Fully resolved project configuration.
+#' @return A list suitable for `run_sensanalyser_pipeline(prepared_batch = ...)`.
+#' @keywords internal
+.sensanalyser_prepare_batch <- function(config) {
+  cli::cli_h1("Sensanalyser — batch preparation")
+  .source_all_helpers()
+
+  # Import logging is batch-level rather than duplicated in every scope. Keep
+  # scope output roots unchanged after preparation.
+  batch_config <- config
+  if (!is.null(config$project_root) && nzchar(config$project_root)) {
+    batch_config$paths$logs_root <- file.path(
+      config$project_root, "outputs", "batch", "logs"
+    )
+  }
+  state <- list(
+    data_raw   = NULL,
+    data       = NULL,
+    selections = NULL,
+    config     = batch_config,
+    results    = list()
+  )
+  state <- .phase2_data_import(state)
+  state$config$paths$logs_root <- config$paths$logs_root
+  if (isTRUE(state$config$toggles$create_derived_attributes)) {
+    state <- .phase2_derived_attributes(state)
+  }
+  state <- .phase2_variable_selection(state)
+
+  list(
+    data_raw   = state$data_raw,
+    data       = state$data,
+    selections = state$selections,
+    config     = state$config
+  )
+}
+
+#' Redirect one scope's outputs for derived-attribute analyses
+#' @keywords internal
+.sens_redirect_derived_outputs <- function(config) {
+  if (!isTRUE(config$toggles$create_derived_attributes)) return(config)
+  output_label <- trimws(config$derived_attribute_options$output_label %||% "")
+  if (!nzchar(output_label)) return(config)
+
+  p <- config$paths
+  config$paths$table_root       <- file.path(p$table_root,       output_label)
+  config$paths$figure_root      <- file.path(p$figure_root,      output_label)
+  config$paths$diagnostics_root <- file.path(p$diagnostics_root, output_label)
+  config$paths$logs_root        <- file.path(p$logs_root,        output_label)
+  cli::cli_alert_info(
+    "Derived-attribute run — outputs redirected to '{output_label}/' subfolders."
+  )
+  config
 }
 
 # ---------------------------------------------------------------------------
@@ -473,8 +549,8 @@ run_sensanalyser_pipeline <- function(config) {
     validate_variable_selections(data, selections)
   }
 
-  # Coerce factor columns
-  pipeline_state$data <- coerce_to_factors(data, selections)
+  # Factor coercion is delayed until after any product-subset filter in
+  # run_sensanalyser_pipeline(), so scopes do not retain unused full-data levels.
 
   # Save config to YAML if this was an interactive run
   if (isTRUE(config$toggles$interactive_setup)) {
