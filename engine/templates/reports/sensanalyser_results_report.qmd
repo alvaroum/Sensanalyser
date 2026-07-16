@@ -122,14 +122,16 @@ extract_first_mean <- function(x) {
 
 raw_to_label <- function(x) {
   modality <- dplyr::case_when(
+    stringr::str_ends(x, "_ap") ~ "Appearance",
+    stringr::str_ends(x, "_af") ~ "Aftertaste",
     stringr::str_ends(x, "_a") ~ "Aroma",
     stringr::str_ends(x, "_f") ~ "Flavour",
     stringr::str_ends(x, "_m") ~ "Mouthfeel",
-    stringr::str_ends(x, "_ap") ~ "Appearance",
+    stringr::str_ends(x, "_t") ~ "Texture",
     TRUE ~ ""
   )
   base <- x |>
-    stringr::str_remove("_(a|f|m|ap)$") |>
+    stringr::str_remove("_(ap|af|a|f|m|t)$") |>
     stringr::str_replace_all("_", " ") |>
     stringr::str_replace("caramalized", "caramelised") |>
     stringr::str_replace("transparancy", "transparency") |>
@@ -144,8 +146,14 @@ figures_dir <- file.path(project_root, outputs_leaf, "figures")
 diagnostics_dir <- file.path(project_root, outputs_leaf, "diagnostics")
 
 results_model <- safe_read_csv(file.path(tables_dir, "results_model.csv"))
-report_wide <- safe_read_csv(file.path(tables_dir, "report_format_wide.csv"))
-report_means <- safe_read_csv(file.path(tables_dir, "report_format_wide_means.csv"))
+presentation_csv_dir <- file.path(tables_dir, "presentation", "csv")
+report_wide_path <- file.path(presentation_csv_dir, "report_format_wide.csv")
+report_means_path <- file.path(presentation_csv_dir, "report_format_wide_means.csv")
+# Fall back to the pre-presentation-export location for older runs.
+if (!file.exists(report_wide_path)) report_wide_path <- file.path(tables_dir, "report_format_wide.csv")
+if (!file.exists(report_means_path)) report_means_path <- file.path(tables_dir, "report_format_wide_means.csv")
+report_wide <- safe_read_csv(report_wide_path)
+report_means <- safe_read_csv(report_means_path)
 run_summary <- safe_read_csv(file.path(tables_dir, "run_configuration_summary.csv"))
 pca_eigen <- safe_read_csv(file.path(tables_dir, "pca", "pca_eigenvalues.csv"))
 pca_scores <- safe_read_csv(file.path(tables_dir, "pca", "pca_group_scores.csv"))

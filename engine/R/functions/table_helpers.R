@@ -6,8 +6,10 @@
 #' optional display-name conversion from renaming_dictionary.yaml.
 #'
 #' Core outputs:
-#' - report_format_wide.csv — manuscript table: rows = outcomes,
-#'   columns = factor levels, cells = "mean ± SE" + post-hoc letter superscripts
+#' - presentation/csv/report_format_wide.csv — manuscript table with Unicode
+#'   superscript letters for convenient CSV/Excel viewing
+#' - presentation/xlsx/report_format_wide.xlsx — same table with true Excel
+#'   rich-text superscript formatting
 #' - run_configuration_summary.csv — audit trail of analysis settings
 #'
 #' @keywords internal
@@ -302,6 +304,13 @@ save_analysis_tables <- function(config,
   report_wide_means <- NULL
   config_summ       <- NULL
 
+  # Presentation-ready report tables are kept apart from the analysis/audit
+  # CSVs in `tables/`, so each output folder remains navigable.
+  presentation_csv_dir  <- here::here(table_root, "presentation", "csv")
+  presentation_xlsx_dir <- here::here(table_root, "presentation", "xlsx")
+  dir.create(presentation_csv_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(presentation_xlsx_dir, recursive = TRUE, showWarnings = FALSE)
+
   # ── Report-format wide table (outcomes as rows, factor levels as columns) ──
   if (!is.null(desc_long) && nrow(desc_long) > 0) {
     grouping_factors <- config$analysis$descriptive_grouping_factors
@@ -317,10 +326,15 @@ save_analysis_tables <- function(config,
       renaming_dictionary = dict
     )
 
-    report_wide_path <- here::here(table_root, "report_format_wide.csv")
-    readr::write_csv(report_wide, report_wide_path)
+    report_wide_csv <- .presentation_csv_table(report_wide)
+    report_wide_path <- file.path(presentation_csv_dir, "report_format_wide.csv")
+    report_wide_xlsx_path <- file.path(presentation_xlsx_dir, "report_format_wide.xlsx")
+    readr::write_csv(report_wide_csv, report_wide_path)
+    .write_superscript_xlsx(report_wide, report_wide_xlsx_path)
     cli::cli_alert_success("Saved: {report_wide_path}")
-    file_list$report_format_wide <- report_wide_path
+    cli::cli_alert_success("Saved: {report_wide_xlsx_path}")
+    file_list$report_format_wide_csv <- report_wide_path
+    file_list$report_format_wide_xlsx <- report_wide_xlsx_path
 
     # Mean-only table (letters shown, SE omitted)
     digits <- config$table_options$digits
@@ -335,10 +349,15 @@ save_analysis_tables <- function(config,
       renaming_dictionary = dict
     )
 
-    means_path <- here::here(table_root, "report_format_wide_means.csv")
-    readr::write_csv(report_wide_means, means_path)
+    report_wide_means_csv <- .presentation_csv_table(report_wide_means)
+    means_path <- file.path(presentation_csv_dir, "report_format_wide_means.csv")
+    means_xlsx_path <- file.path(presentation_xlsx_dir, "report_format_wide_means.xlsx")
+    readr::write_csv(report_wide_means_csv, means_path)
+    .write_superscript_xlsx(report_wide_means, means_xlsx_path)
     cli::cli_alert_success("Saved: {means_path}")
-    file_list$report_format_wide_means <- means_path
+    cli::cli_alert_success("Saved: {means_xlsx_path}")
+    file_list$report_format_wide_means_csv <- means_path
+    file_list$report_format_wide_means_xlsx <- means_xlsx_path
   }
 
   # ── Configuration summary ─────────────────────────────────────────────────
@@ -393,8 +412,161 @@ run_table_phase <- function(pipeline_state) {
 }
 
 # ---------------------------------------------------------------------------
-# REPORT TABLE FORMATTING AND RENDERING
+# PRESENTATION EXPORTS AND REPORT TABLE FORMATTING
 # ---------------------------------------------------------------------------
+
+#' Convert compact-letter markers to Unicode superscript glyphs
+#'
+#' CSV cannot retain Excel font formatting. This converter provides a readable
+#' CSV representation (e.g. `17.1 ± 5.4ᵃ`) while the matching XLSX export uses
+#' actual rich-text superscript formatting.
+#'
+#' @param x Character vector containing optional `^letters^` suffixes.
+#' @return Character vector with marker suffixes converted to Unicode glyphs.
+#' @keywords internal
+.superscript_unicode <- function(x) {
+  glyphs <- c(
+    a = "ᵃ", b = "ᵇ", c = "ᶜ", d = "ᵈ", e = "ᵉ", f = "ᶠ", g = "ᵍ",
+    h = "ʰ", i = "ⁱ", j = "ʲ", k = "ᵏ", l = "ˡ", m = "ᵐ", n = "ⁿ",
+    o = "ᵒ", p = "ᵖ", r = "ʳ", s = "ˢ", t = "ᵗ", u = "ᵘ", v = "ᵛ",
+    w = "ʷ", x = "ˣ", y = "ʸ", z = "ᶻ"
+  )
+  vapply(strsplit(tolower(x), "", fixed = TRUE), function(chars) {
+    converted <- unname(glyphs[chars])
+    converted[is.na(converted)] <- chars[is.na(converted)]
+    paste0(converted, collapse = "")
+  }, character(1))
+}
+
+.format_superscript_unicode_cell <- function(x) {
+  if (is.na(x)) return(NA_character_)
+  parts <- regmatches(x, regexec("^(.*)\\^([A-Za-z]+)\\^$", x))[[1]]
+  if (length(parts) != 3) return(x)
+  paste0(parts[2], .superscript_unicode(parts[3]))
+}
+
+.presentation_csv_table <- function(tbl) {
+  tbl[] <- lapply(tbl, function(col) {
+    if (!is.character(col)) return(col)
+    unname(vapply(col, .format_superscript_unicode_cell, character(1)))
+  })
+  tbl
+}
+
+.xml_escape <- function(x) {
+  x <- gsub("&", "&amp;", x, fixed = TRUE)
+  x <- gsub("<", "&lt;", x, fixed = TRUE)
+  x <- gsub(">", "&gt;", x, fixed = TRUE)
+  x <- gsub("\"", "&quot;", x, fixed = TRUE)
+  gsub("'", "&apos;", x, fixed = TRUE)
+}
+
+.xlsx_column_name <- function(n) {
+  out <- ""
+  while (n > 0) {
+    r <- (n - 1) %% 26
+    out <- paste0(LETTERS[r + 1], out)
+    n <- (n - 1) %/% 26
+  }
+  out
+}
+
+.xlsx_inline_cell <- function(ref, value, style = 0L) {
+  value <- if (is.na(value)) "" else as.character(value)
+  parts <- regmatches(value, regexec("^(.*)\\^([A-Za-z]+)\\^$", value))[[1]]
+  if (length(parts) == 3) {
+    return(paste0(
+      '<c r="', ref, '" s="', style, '" t="inlineStr"><is>',
+      '<r><t xml:space="preserve">', .xml_escape(parts[2]), '</t></r>',
+      '<r><rPr><rFont val="Arial"/><sz val="10"/><vertAlign val="superscript"/></rPr>',
+      '<t xml:space="preserve">', .xml_escape(parts[3]), '</t></r>',
+      '</is></c>'
+    ))
+  }
+  paste0('<c r="', ref, '" s="', style, '" t="inlineStr"><is><t xml:space="preserve">',
+         .xml_escape(value), '</t></is></c>')
+}
+
+#' Write a report table as an XLSX file with real superscript letter runs
+#'
+#' Uses the XLSX Open XML rich-text representation directly, avoiding a Java or
+#' platform-specific Excel dependency. Cells containing the internal `^a^`
+#' marker retain normal formatting for the statistic and use superscript font
+#' formatting only for the compact-letter display.
+#'
+#' @param tbl Data frame to export.
+#' @param path Destination `.xlsx` path.
+#' @param sheet_name Sheet name.
+#' @keywords internal
+.write_superscript_xlsx <- function(tbl, path, sheet_name = "Report table") {
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  work_dir <- tempfile("sensanalyser_xlsx_")
+  dir.create(file.path(work_dir, "_rels"), recursive = TRUE)
+  dir.create(file.path(work_dir, "xl", "_rels"), recursive = TRUE)
+  dir.create(file.path(work_dir, "xl", "worksheets"), recursive = TRUE)
+  on.exit(unlink(work_dir, recursive = TRUE, force = TRUE), add = TRUE)
+
+  rows <- c(list(names(tbl)), unname(split(tbl, seq_len(nrow(tbl)))))
+  sheet_rows <- vapply(seq_along(rows), function(i) {
+    vals <- unlist(rows[[i]], use.names = FALSE)
+    cells <- vapply(seq_along(vals), function(j) {
+      .xlsx_inline_cell(paste0(.xlsx_column_name(j), i), vals[j], if (i == 1) 1L else 0L)
+    }, character(1))
+    paste0('<row r="', i, '">', paste0(cells, collapse = ""), '</row>')
+  }, character(1))
+
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+    '<Default Extension="xml" ContentType="application/xml"/>',
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+    '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+    '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>',
+    '</Types>'
+  ), file.path(work_dir, "[Content_Types].xml"))
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>',
+    '</Relationships>'
+  ), file.path(work_dir, "_rels", ".rels"))
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+    '<sheets><sheet name="', .xml_escape(substr(sheet_name, 1, 31)), '" sheetId="1" r:id="rId1"/></sheets></workbook>'
+  ), file.path(work_dir, "xl", "workbook.xml"))
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>',
+    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>',
+    '</Relationships>'
+  ), file.path(work_dir, "xl", "_rels", "workbook.xml.rels"))
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+    '<fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font></fonts>',
+    '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>',
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>',
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>',
+    '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>',
+    '</styleSheet>'
+  ), file.path(work_dir, "xl", "styles.xml"))
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>',
+    sheet_rows,
+    '</sheetData></worksheet>'
+  ), file.path(work_dir, "xl", "worksheets", "sheet1.xml"))
+
+  old_wd <- getwd()
+  on.exit(setwd(old_wd), add = TRUE)
+  setwd(work_dir)
+  utils::zip(zipfile = normalizePath(path, mustWork = FALSE),
+             files = c("[Content_Types].xml", "_rels", "xl"), flags = "-r9Xq")
+  invisible(path)
+}
 
 #' Format column cells element-wise with superscript using flextable
 #'

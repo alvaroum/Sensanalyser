@@ -34,7 +34,46 @@ load_renaming_dictionary <- function(path) {
   dict
 }
 
+#' Format an internal sensory-attribute name for presentation
+#'
+#' Converts a recognised terminal modality code into a parenthetical label,
+#' while retaining the raw identifier for all analysis operations. For example,
+#' `darkness_crumb_ap` becomes `Darkness crumb (Appearance)`. Names without a
+#' recognised terminal code fall back to a sentence-cased, underscore-free form.
+#'
+#' @param x One internal outcome name.
+#' @return A presentation label.
+#' @keywords internal
+.format_attribute_label <- function(x) {
+  modality_labels <- c(
+    ap = "Appearance",
+    a  = "Aroma",
+    f  = "Flavour",
+    m  = "Mouthfeel",
+    t  = "Texture",
+    af = "Aftertaste"
+  )
+
+  parts <- regmatches(x, regexec("^(.*)_([a-z]+)$", x))[[1]]
+  base <- x
+  modality <- NULL
+  if (length(parts) == 3 && parts[3] %in% names(modality_labels) && nzchar(parts[2])) {
+    base <- parts[2]
+    modality <- unname(modality_labels[[parts[3]]])
+  }
+
+  label <- gsub("_", " ", base)
+  if (nzchar(label)) {
+    label <- paste0(toupper(substr(label, 1, 1)), substr(label, 2, nchar(label)))
+  }
+  if (!is.null(modality)) paste0(label, " (", modality, ")") else label
+}
+
 #' Apply display labels to outcome names
+#'
+#' Explicit `labels.attributes` mappings take precedence. All other names use
+#' `.format_attribute_label()` so tables, figures and multivariate outputs get
+#' consistent presentation labels without changing the underlying data columns.
 #'
 #' @param outcome_chr Character vector of outcome internal names
 #' @param dict Renaming dictionary list from load_renaming_dictionary()
@@ -45,7 +84,7 @@ load_renaming_dictionary <- function(path) {
     if (!is.null(dict$outcomes[[x]])) {
       as.character(dict$outcomes[[x]])
     } else {
-      gsub("_", " ", x)
+      .format_attribute_label(x)
     }
   }, character(1))
   mapped

@@ -167,8 +167,11 @@ labels:
   #   product:
   #     ctrl: Control
 
-  attributes: {}               # sensory attribute labels
-  # attributes:
+  # Sensory attribute labels. Unlisted names are formatted automatically when
+  # they end in a recognised modality code: _ap Appearance, _a Aroma,
+  # _f Flavour, _m Mouthfeel, _t Texture, or _af Aftertaste.
+  attributes: {}
+  # attributes:                 # explicit labels override the automatic form
   #   sweet_a: Sweetness (Aroma)
 
 
