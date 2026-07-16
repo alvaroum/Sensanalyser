@@ -132,7 +132,7 @@
 #'
 #' @description
 #' Two labels that only differ in case or surrounding whitespace (e.g.
-#' \code{"panelist a 0,07\%"} vs \code{"panelist a 0,07\%"}) represent the same
+#' \code{"Panelist A 0,07\%"} vs \code{"panelist a 0,07\%"}) represent the same
 #' factor and must map to the same column. Calling
 #' \code{janitor::make_clean_names()} directly on the full label vector
 #' would instead disambiguate them into two separate columns (e.g. with a

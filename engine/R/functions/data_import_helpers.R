@@ -146,7 +146,7 @@ load_sensanalyser_data <- function(
     data <- janitor::clean_names(data)
   }
 
-  # Collapse case-only variants (e.g. "panelist a" / "panelist a", "Test" / "test") so
+  # Collapse case-only variants (e.g. "Panelist A" / "panelist a", "Test" / "test") so
   # the same panelist, product, or factor level isn't split into duplicate
   # categories just because capitalization drifted across raw files/sessions.
   data <- .canonicalize_case_variants(data)
@@ -172,7 +172,7 @@ load_sensanalyser_data <- function(
 #'
 #' @description
 #' For every character column, values that are identical once lower-cased
-#' and trimmed (e.g. "panelist a" / "panelist a", "Test" / "test") are rewritten to a
+#' and trimmed (e.g. "Panelist A" / "panelist a", "Test" / "test") are rewritten to a
 #' single canonical spelling — the most frequently occurring original
 #' casing for that value, with ties broken by first appearance. This runs
 #' on the fully combined dataset so drift across different raw files (e.g.

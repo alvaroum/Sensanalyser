@@ -41,7 +41,7 @@ local({
 # Packages are guaranteed present from here on.
 source(here::here("engine", "R", "load_sensanalyser.R"))
 
-run_project("projects/example_study")
+# run_project("projects/example_study")
 
 
 # ── Other things you can do (uncomment and run a single line) ──────────────
