@@ -63,6 +63,13 @@ ok(identical(unlist(s$attributes), c("sweet","sour")), "data_summary attributes"
 # --- commented settings writeback round-trip ---
 proj <- file.path(tempdir(), "wc_proj"); unlink(proj, recursive = TRUE)
 sensanalyser_create_project(proj, overwrite = TRUE)
+ok(dir.exists(file.path(proj, "outputs")) && !any(dir.exists(file.path(
+  proj, "outputs", c("tables", "figures", "diagnostics", "logs")
+))), "new project leaves scope-specific output folders uncreated")
+dir.create(file.path(proj, "outputs", "tables"), recursive = TRUE)
+sensanalyser_validate_project(proj)
+ok(!dir.exists(file.path(proj, "outputs", "tables")),
+   "validation removes an obsolete empty legacy output folder")
 writeLines("x", file.path(proj, "data", "raw", "d.csv"))
 selections <- list(dependent_variables = c("sweet","sour"), factors = c("product","session"),
                    subject_id = "user", random_effects = "user", repeated_measures_factors = character(0))

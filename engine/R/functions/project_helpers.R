@@ -65,11 +65,11 @@ sensanalyser_create_project <- function(project_dir, project_id = NULL, overwrit
   cli::cli_h1("Creating new Sensanalyser project")
   cli::cli_alert_info("Path: {.path {project_dir}}")
   
-  # Create standard subfolders
+  # Create only project-owned roots. Analysis folders are created lazily for
+  # the selected scope: outputs/general/... or outputs/subsets/<name>/....
+  # Do not create the obsolete loose outputs/tables|figures|diagnostics|logs.
   folders <- c(
-    "data/raw", "data/processed", "data/dictionary",
-    "outputs/tables", "outputs/figures", "outputs/diagnostics", "outputs/logs",
-    "reports"
+    "data/raw", "data/processed", "data/dictionary", "outputs", "reports"
   )
   
   for (f in folders) {
@@ -221,14 +221,11 @@ sensanalyser_reset_project <- function(project_dir, full = FALSE, ask = interact
 #' @export
 sensanalyser_project_paths <- function(project_root) {
   list(
-    raw_data         = file.path(project_root, "data", "raw"),
-    processed_data   = file.path(project_root, "data", "processed"),
-    dictionary       = file.path(project_root, "data", "dictionary"),
-    tables           = file.path(project_root, "outputs", "tables"),
-    figures          = file.path(project_root, "outputs", "figures"),
-    diagnostics      = file.path(project_root, "outputs", "diagnostics"),
-    logs             = file.path(project_root, "outputs", "logs"),
-    reports          = file.path(project_root, "reports")
+    raw_data       = file.path(project_root, "data", "raw"),
+    processed_data = file.path(project_root, "data", "processed"),
+    dictionary     = file.path(project_root, "data", "dictionary"),
+    outputs        = file.path(project_root, "outputs"),
+    reports        = file.path(project_root, "reports")
   )
 }
 
@@ -240,6 +237,17 @@ sensanalyser_validate_project <- function(project_root) {
     if (!dir.exists(paths[[p]])) {
       cli::cli_alert_warning("Missing project folder: {.path {paths[[p]]}}. Creating it...")
       dir.create(paths[[p]], recursive = TRUE, showWarnings = FALSE)
+    }
+  }
+
+  # Clean up obsolete empty folders created by older Sensanalyser releases.
+  # Never remove a non-empty legacy folder automatically.
+  legacy_dirs <- file.path(project_root, "outputs",
+                           c("tables", "figures", "diagnostics", "logs"))
+  for (path in legacy_dirs) {
+    if (dir.exists(path) && length(list.files(path, all.files = TRUE, no.. = TRUE)) == 0) {
+      unlink(path, recursive = TRUE, force = TRUE)
+      cli::cli_alert_info("Removed obsolete empty output folder: {.path {path}}")
     }
   }
 }

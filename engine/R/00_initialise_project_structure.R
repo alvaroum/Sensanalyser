@@ -16,15 +16,10 @@
 #'   sensanalyser_initialise_structure()
 #' }
 sensanalyser_initialise_structure <- function(root = here::here()) {
-  # These folders are the Phase 1 scaffold for the reusable Sensanalyser
-  # workflow. Later phases will add files inside these folders, but the folder
-  # names should remain stable so paths in mission_control.R can be reused.
-  required_dirs <- c(
-    "R/functions",
-    "archive",
-    "projects",
-    "templates"
-  )
+  # The active engine owns `engine/R` and `engine/templates`; creating old
+  # root-level R/, templates/, or archive/ folders on every run is both unused
+  # and confusing. Only the project container remains a root-level scaffold.
+  required_dirs <- "projects"
 
   created_dirs <- character(0)
 
