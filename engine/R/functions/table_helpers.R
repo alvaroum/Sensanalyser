@@ -18,6 +18,35 @@
 # UTILITIES
 # ---------------------------------------------------------------------------
 
+#' Mark significant outcomes in an exactly-two-product comparison
+#'
+#' The omnibus product test is the sole product comparison when a scope has two
+#' product levels. Mark its significant outcomes in presentation-table row
+#' labels rather than producing redundant post-hoc letters.
+#'
+#' @keywords internal
+.mark_two_product_significance <- function(desc_long, results_model,
+                                           grouping_factor, alpha = 0.05) {
+  if (is.null(results_model) || nrow(results_model) == 0 ||
+      is.null(grouping_factor) || !grouping_factor %in% names(desc_long)) {
+    return(desc_long)
+  }
+
+  levels <- unique(stats::na.omit(as.character(desc_long[[grouping_factor]])))
+  if (length(levels) != 2L) return(desc_long)
+
+  p_values <- suppressWarnings(as.numeric(results_model$p))
+  significant <- results_model$outcome[
+    results_model$term == grouping_factor & !is.na(p_values) & p_values < alpha
+  ]
+  if (length(significant) == 0) return(desc_long)
+
+  to_mark <- which(desc_long$outcome %in% significant)
+  to_mark <- to_mark[!grepl("\\*$", desc_long$outcome_display[to_mark])]
+  desc_long$outcome_display[to_mark] <- paste0(desc_long$outcome_display[to_mark], "*")
+  desc_long
+}
+
 #' Prepare metadata for manuscript tables
 #'
 #' @param config Full config
@@ -318,8 +347,14 @@ save_analysis_tables <- function(config,
       grouping_factors <- selections$factors
     }
 
+    alpha <- config$analysis$alpha
+    if (is.null(alpha) || length(alpha) == 0 || is.na(alpha)) alpha <- 0.05
+    desc_for_report <- .mark_two_product_significance(
+      desc_long, results_model, grouping_factors[1], alpha
+    )
+
     report_wide <- create_report_wide(
-      desc_long          = desc_long,
+      desc_long          = desc_for_report,
       letters_tbl        = if (!is.null(posthoc_result)) posthoc_result$posthoc_letters else NULL,
       grouping_factors   = grouping_factors,
       include_letters    = TRUE,
@@ -341,7 +376,7 @@ save_analysis_tables <- function(config,
     if (is.null(digits) || length(digits) == 0 || is.na(digits)) digits <- 1L
 
     report_wide_means <- create_report_wide_means(
-      desc_long           = desc_long,
+      desc_long           = desc_for_report,
       letters_tbl         = if (!is.null(posthoc_result)) posthoc_result$posthoc_letters else NULL,
       grouping_factors    = grouping_factors,
       include_letters     = TRUE,

@@ -176,6 +176,16 @@ suppress_non_significant_letters <- function(letters_tbl, omnibus_p, alpha = 0.0
 # POST-HOC RUNNERS
 # ---------------------------------------------------------------------------
 
+#' Whether the current analysis scope compares exactly two product levels
+#' @keywords internal
+.is_two_product_comparison <- function(data, selections) {
+  product_col <- (selections$factors %||% character(0))[1]
+  if (is.null(product_col) || !nzchar(product_col) || !product_col %in% names(data)) {
+    return(FALSE)
+  }
+  length(unique(stats::na.omit(as.character(data[[product_col]])))) == 2L
+}
+
 #' Run emmeans-based post-hoc comparisons
 #'
 #' @param model_object Fitted model object

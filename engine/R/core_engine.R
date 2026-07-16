@@ -676,6 +676,22 @@ run_sensanalyser_pipeline <- function(config, prepared_batch = NULL) {
     pipeline_state$results$models <- model_result
   }
 
+  # With exactly two product levels, the omnibus product test is the single
+  # comparison of interest. Do not fit a redundant pairwise post-hoc model or
+  # create compact letters; Phase 7 adds `*` to significant attribute labels.
+  if (.is_two_product_comparison(data, selections)) {
+    cli::cli_alert_info(
+      "Two product levels detected — skipping post-hoc analysis; significant attributes are marked with '*'."
+    )
+    pipeline_state$results$posthoc <- list(
+      posthoc_pairwise = tibble::tibble(),
+      posthoc_letters = tibble::tibble(),
+      posthoc_method_summary = tibble::tibble(),
+      skipped_two_product_comparison = TRUE
+    )
+    return(pipeline_state)
+  }
+
   posthoc_result <- run_posthoc_phase(
     data = data,
     selections = selections,
