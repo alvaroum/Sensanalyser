@@ -9,6 +9,9 @@
 # Check what your project will do before running it:
 #   settings_summary("projects/<this project>")
 #
+# After guided setup, data_summary.yaml records the current internal names of
+# product levels and sensory attributes. Use those exact names in variables,
+# subsets, labels.levels, labels.aliases, and labels.attributes below.
 # YAML rules: two spaces for indentation (never tabs), and `key: value`.
 # --------------------------------------------------------------------------
 
@@ -29,7 +32,8 @@ data:
 # ─── 2. VARIABLES ─────────────────────────────────────────────────────────
 variables:
   # Sensory attributes to analyse. auto = every numeric column that is not a
-  # design column. Or list them: [sweet, sour, bitter]
+  # design column. Or list their exact internal names from data_summary.yaml:
+  # [sweet_a, sour_a, bitterness_a]
   attributes: auto
 
   # Attributes to leave out of the whole analysis (e.g. not measured in every
@@ -152,6 +156,8 @@ outputs:
 # keeps its raw name (with underscores turned into spaces).
 labels:
   # Merge product names that mean the same thing (applied while cleaning).
+  # Use exact current product names from data_summary.yaml. This changes the
+  # analysis grouping, unlike levels.product which changes display only.
   aliases: {}
   # aliases:
   #   product:
@@ -162,7 +168,9 @@ labels:
   #   product: Product
   #   user: Panelist
 
-  levels: {}                   # factor level labels
+  # Display-only names for factor levels. Use this to make products read
+  # better in tables and figures without merging them statistically.
+  levels: {}
   # levels:
   #   product:
   #     ctrl: Control
@@ -173,6 +181,8 @@ labels:
   attributes: {}
   # attributes:                 # explicit labels override the automatic form
   #   sweet_a: Sweetness (Aroma)
+  # Use exact attribute names from data_summary.yaml; this changes labels only,
+  # never the source column or analysis definition.
 
 
 # ─── 8. DERIVED ATTRIBUTES ────────────────────────────────────────────────

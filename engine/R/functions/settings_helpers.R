@@ -593,6 +593,8 @@ sensanalyser_load_settings <- function(project_dir) {
     "#",
     paste0("# Written by the guided setup on ", format(Sys.Date()), "."),
     "# interactive_setup is now off, so future runs reproduce these choices.",
+    "# data_summary.yaml lists the current internal product and attribute names.",
+    "# Use those exact names for variables, subsets, aliases and display labels.",
     "# Edit any value below and re-run; every option is documented in",
     "# engine/templates/settings.yaml.",
     "#"
@@ -608,7 +610,8 @@ sensanalyser_load_settings <- function(project_dir) {
   add(emit("data", full$data), c(
     "# ── Data ─────────────────────────────────────────────────────────────────",
     "# files: the raw data file(s) to load. `auto` = every file in data/raw.",
-    "#   Example: files: [data/raw/QDA.xlsx]"
+    "#   Example: files: [data/raw/QDA.xlsx].",
+    "# After setup, data_summary.yaml records the imported products and attributes."
   ))
   add(emit("variables", full$variables), c(
     "# ── Variables ────────────────────────────────────────────────────────────",
@@ -617,7 +620,8 @@ sensanalyser_load_settings <- function(project_dir) {
     "# product       : the product / sample column",
     "# panelist      : the assessor column (or null)",
     "# extra_factors : extra design factors, e.g. [session]",
-    "#   Example: to also analyse 'aftertaste', add it under attributes."
+    "# Use exact internal attribute names from data_summary.yaml; labels do not",
+    "# replace these analysis names. Example: add 'aftertaste_a' under attributes."
   ))
   add(emit("model", full$model), c(
     "# ── Model ────────────────────────────────────────────────────────────────",
@@ -626,31 +630,65 @@ sensanalyser_load_settings <- function(project_dir) {
     "#   three_way_repeated, linear_mixed_model.",
     "#   Example: set posthoc.run: true to add pairwise comparisons."
   ))
+  add(emit("outliers", full$outliers), c(
+    "# ── Outliers ─────────────────────────────────────────────────────────────",
+    "# policy: keep_all (report only), remove_extreme, or remove_all.",
+    "# action: set_na removes only a score; drop_row removes the observation."
+  ))
+  add(emit("multivariate", full$multivariate), c(
+    "# ── Multivariate ─────────────────────────────────────────────────────────",
+    "# PCA/HCPC/MFA settings. HCPC clusters: auto, click, or a number >= 2."
+  ))
+  add(emit("outputs", full$outputs), c(
+    "# ── Outputs ──────────────────────────────────────────────────────────────",
+    "# Presentation-ready report tables are written under tables/presentation/.",
+    "# CSV files use readable Unicode superscripts; XLSX files use true Excel",
+    "# superscript formatting."
+  ))
+  add(emit("labels", full$labels), c(
+    "# ── Display labels and product aliases ───────────────────────────────────",
+    "# labels.attributes: display-only attribute names in tables, figures and reports.",
+    "# labels.levels.product: display-only product names; products remain distinct.",
+    "# labels.aliases.product: merge raw names that are truly the same product.",
+    "# Use exact names from data_summary.yaml. Examples:",
+    "#   labels:",
+    "#     attributes: {chewiness_m: 'Chewiness (Mouthfeel)'}",
+    "#     levels: {product: {'Trial 1': 'Ushuaia trial'}}",
+    "#     aliases: {product: {'Trial 1 fresh': 'Trial 1'}}"
+  ))
+  add(emit("derived", full$derived), c(
+    "# ── Derived attributes ───────────────────────────────────────────────────",
+    "# Enable only when definitions under derived_attributes are present."
+  ))
+  add(emit("derived_attributes", full$derived_attributes), c(
+    "# Define row-wise derived attributes here; source_variables use internal names",
+    "# from data_summary.yaml."
+  ))
   add(emit("scope", full$scope %||% "general"), c(
     "# ── Scope ────────────────────────────────────────────────────────────────",
-    "# Which analyses to run: general (whole dataset), subsets (only the",
-    "# subsets below), or both.",
-    "#   Example: scope: both"
+    "# general = whole dataset; subsets = defined subsets only; both = both.",
+    "# General outputs are in outputs/general/; subset outputs in outputs/subsets/<name>/."
   ))
   add(emit("subsets", full$subsets), c(
     "# ── Subsets ──────────────────────────────────────────────────────────────",
-    "# Each named subset re-runs the whole analysis on part of the products and",
-    "# writes to outputs/subsets/<name>/. Use include: [..] to keep only those",
-    "# products, or exclude: [..] to drop them.",
-    "#   Example:",
-    "#   subsets:",
-    "#     without_control:",
-    "#       exclude: [Control]"
+    "# Each entry uses include OR exclude and exact product names from data_summary.yaml.",
+    "# Example: {without_control: {exclude: [Control]}}"
+  ))
+  add(emit("advanced", full$advanced), c(
+    "# ── Advanced ─────────────────────────────────────────────────────────────",
+    "# interactive_setup is used only for guided first setup; reset_project() is",
+    "# the safe way to request it again. discover_variables prints data structure",
+    "# and stops before analysis."
   ))
 
-  rest_keys <- setdiff(names(full),
-                       c("project", "data", "variables", "model", "scope", "subsets"))
-  rest <- full[rest_keys]
-  add(
-    strsplit(sub("\n+$", "", yaml::as.yaml(rest, indent = 2)), "\n", fixed = TRUE)[[1]],
-    c("# ── Everything else (outliers, multivariate, outputs, labels, advanced) ──",
-      "# Sensible defaults; edit as needed - see engine/templates/settings.yaml.")
-  )
+  handled <- c("project", "data", "variables", "model", "outliers", "multivariate",
+               "outputs", "labels", "derived", "derived_attributes", "scope", "subsets", "advanced")
+  rest_keys <- setdiff(names(full), handled)
+  if (length(rest_keys) > 0) {
+    rest <- full[rest_keys]
+    add(strsplit(sub("\n+$", "", yaml::as.yaml(rest, indent = 2)), "\n", fixed = TRUE)[[1]],
+        "# ── Additional settings ───────────────────────────────────────────────")
+  }
 
   L
 }
